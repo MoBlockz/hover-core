@@ -22,7 +22,7 @@ const T = {
 };
 
 // ---------- Settings ----------
-const settings = Object.assign({ sens: 1, invert: false, autoLevel: true, spar: true, frame: 'strider', name: '', muted: false },
+const settings = Object.assign({ sens: 1, invert: false, autoLevel: true, spar: true, frame: 'strider', view: 'cockpit', aim: 1, name: '', muted: false },
   JSON.parse(localStorage.getItem('hovercore') || '{}'));
 const saveSettings = () => localStorage.setItem('hovercore', JSON.stringify(settings));
 
@@ -113,6 +113,7 @@ addEventListener('keydown', e => {
   if (state !== 'playing') return;
   if (e.code === 'KeyQ') input.qb = true;
   if (e.code === 'KeyE') input.msl = true;
+  if (e.code === 'KeyV') toggleView();
   if (e.code === 'KeyM') { settings.muted = !settings.muted; sfx.setMuted(settings.muted); saveSettings(); }
   if (e.code === 'KeyR' && mode === 'training') respawn();
   if (e.code === 'Tab') { e.preventDefault(); $('scores').classList.add('big'); }
@@ -200,6 +201,36 @@ bindButton('bQB', () => input.qb = true);
 bindButton('bRise', () => input.rise = true, () => input.rise = false, true);
 bindButton('bDive', () => input.dive = true, () => input.dive = false);
 bindButton('bBoost', () => { input.sprintToggle = !input.sprintToggle; }, null);
+$('viewBtn').addEventListener('click', () => toggleView());
+function toggleView() {
+  settings.view = settings.view === 'third' ? 'cockpit' : 'third'; saveSettings();
+  $('viewSel').value = settings.view;
+  showMsg(settings.view === 'third' ? 'THIRD-PERSON VIEW' : 'COCKPIT VIEW', 1);
+}
+
+// ---------- Stop the mobile browser from zooming the page ----------
+// iOS Safari ignores user-scalable=no, so block pinch / double-tap zoom ourselves.
+for (const ev of ['gesturestart', 'gesturechange', 'gestureend']) document.addEventListener(ev, e => e.preventDefault(), { passive: false });
+document.addEventListener('touchmove', e => { if (e.touches.length > 1 || (e.scale && e.scale !== 1)) e.preventDefault(); }, { passive: false });
+let lastTouchEnd = 0;
+document.addEventListener('touchend', e => {
+  const now = performance.now();
+  if (now - lastTouchEnd < 350 && !e.target.closest?.('input,select,details,summary')) e.preventDefault();
+  lastTouchEnd = now;
+}, { passive: false });
+document.addEventListener('dblclick', e => e.preventDefault(), { passive: false });
+// If the page still ends up zoomed (e.g. after focusing a text box), snap it back.
+function resetZoom() {
+  const vv = window.visualViewport;
+  if (!vv || vv.scale <= 1.01) return;
+  const meta = document.querySelector('meta[name=viewport]');
+  const orig = meta.dataset.orig || (meta.dataset.orig = meta.content);
+  // Re-applying initial-scale (with a changed string) makes iOS/Android reset the zoom.
+  meta.content = 'width=device-width,initial-scale=1.0,maximum-scale=1.0';
+  setTimeout(() => { meta.content = orig; window.scrollTo(0, 0); }, 60);
+}
+window.visualViewport?.addEventListener('resize', () => { if (state === 'playing') resetZoom(); });
+setInterval(() => { if (state === 'playing') resetZoom(); }, 1000);
 $('pauseBtn').addEventListener('click', () => pause());
 
 function readInput(dt) {
@@ -235,7 +266,7 @@ function toGround(impact = 0) {
   if (Math.abs(f.y) > 0.97) P.yaw = Math.atan2(-u.x * Math.sign(-f.y), -u.z * Math.sign(-f.y));
   else P.yaw = Math.atan2(-f.x, -f.z);
   P.pitch = clamp(Math.asin(clamp(f.y, -1, 1)), -1.2, 1.2);
-  P.mode = 'ground'; P.blend = 0.45;
+  P.mode = 'ground'; P.blend = 0.45; if (P.vel.y < 0) P.vel.y = 0;
   if (impact > 0.15) { P.shake = Math.max(P.shake, impact * 0.8); sfx.land(impact); dustRing(P.pos.x, P.pos.y - EYE, P.pos.z, 26 * impact + 8); }
 }
 function facingYaw() {
@@ -574,7 +605,36 @@ function updateMissiles(dt) {
 }
 
 function camForward() { return V(0, 0, -1).applyQuaternion(P.viewQ); }
-function muzzlePos() { return V(2.2, -2.4, -4).applyQuaternion(P.viewQ).add(P.pos); }
+const thirdPerson = () => settings.view === 'third';
+// Point on the crosshair ray closest to the mech: shots start here so 3rd-person aim matches the reticle.
+function aimOrigin() {
+  if (!thirdPerson()) return P.pos.clone();
+  const f = camForward(), c = camera.position;
+  return c.clone().addScaledVector(f, Math.max(0, P.pos.clone().sub(c).dot(f)));
+}
+function muzzlePos() {
+  if (thirdPerson() && ownMech && ownMech.visible) { ownMech.updateMatrixWorld(true); return ownMech.userData.rig.muzzle.getWorldPosition(V()); }
+  return V(2.2, -2.4, -4).applyQuaternion(P.viewQ).add(P.pos);
+}
+// Aim assist: gently pull the view toward a target near the crosshair.
+function aimMagnet(dt, f, o, t, ang, cone) {
+  if (!t || settings.aim <= 0 || !P.alive || ang > cone || ang < 1e-4) return;
+  const sp = P.vel.length();
+  if (!(input.fire || sp > 50 || P.locked)) return;
+  const k = 1 - ang / cone;
+  const step = Math.min(ang, (0.5 + sp / 120) * settings.aim * k * dt);
+  if (step <= 1e-5) return;
+  const want = t.center.clone().sub(o).normalize();
+  if (P.mode === 'ground') {
+    const dy = Math.atan2(-want.x, -want.z) - P.yaw, dyw = Math.atan2(Math.sin(dy), Math.cos(dy));
+    const dp = Math.atan2(want.y, Math.hypot(want.x, want.z)) - P.pitch;
+    const tot = Math.hypot(dyw, dp) || 1;
+    P.yaw += dyw / tot * step; P.pitch = clamp(P.pitch + dp / tot * step, -1.45, 1.45);
+  } else {
+    const full = new THREE.Quaternion().setFromUnitVectors(f, want);
+    P.q.premultiply(new THREE.Quaternion().slerp(full, Math.min(1, step / ang))).normalize();
+  }
+}
 
 function updateWeapons(dt) {
   P.fireCd -= dt;
@@ -582,14 +642,16 @@ function updateWeapons(dt) {
   if (P.msl < MSL_MAX && (P.mslT -= dt) <= 0) { P.msl++; P.mslT = 2.4; }
 
   // Lock-on: closest target to the reticle inside a cone
-  const f = camForward();
+  const f = camForward(), ao = aimOrigin();
   let cand = null, ca = 0.45;
   for (const t of liveTargets()) {
-    const d = t.center.clone().sub(P.pos), L = d.length();
+    const d = t.center.clone().sub(ao), L = d.length();
     if (L > 750) continue;
     const a = f.angleTo(d.divideScalar(L));
     if (a < ca && hasLOS(P.pos, t.center)) { ca = a; cand = t; }
   }
+  const cone = (isTouch ? 0.11 : 0.07) * settings.aim; // ~6 deg touch / 4 deg mouse at default
+  aimMagnet(dt, f, ao, cand, ca, cone * 2.2);
   if (cand && cand === P.lock) P.lockT += dt; else { P.lock = cand; P.lockT = 0; }
   const wasLocked = P.locked;
   P.locked = !!P.lock && P.lockT > 0.45;
@@ -600,14 +662,15 @@ function updateWeapons(dt) {
     P.fireCd = 0.095; P.ammo--; P.lastShot = performance.now();
     if (P.ammo <= 0) { P.reloadT = 1.8; P.ammo = 0; }
     let dir = f.clone();
-    // Light aim assist toward the locked/nearest target (helps on touch at Gundam speeds)
-    const assist = isTouch ? 0.07 : 0.035;
-    if (P.lock && ca < assist) dir = P.lock.center.clone().sub(P.pos).normalize();
-    dir.add(V((Math.random() - 0.5) * 0.012, (Math.random() - 0.5) * 0.012, (Math.random() - 0.5) * 0.012)).normalize();
-    _ray.set(P.pos, dir);
+    // Auto-aim: shots near a target bend onto it (helps hitting at Gundam speeds)
+    const assisted = cand && ca < cone;
+    if (assisted) dir = cand.center.clone().sub(ao).normalize();
+    const spread = assisted ? 0.004 : 0.012;
+    dir.add(V((Math.random() - 0.5) * spread, (Math.random() - 0.5) * spread, (Math.random() - 0.5) * spread)).normalize();
+    _ray.set(ao, dir);
     const wall = rayArena(arena.colliders, _ray, 900);
-    const hit = rayTargets(P.pos, dir, wall);
-    const end = P.pos.clone().addScaledVector(dir, hit.t ? hit.dist : wall);
+    const hit = rayTargets(ao, dir, wall);
+    const end = ao.clone().addScaledVector(dir, hit.t ? hit.dist : wall);
     const mz = muzzlePos();
     tracers.add(mz, end, 0xffc37a, 1.3);
     particles.burst(mz, 4, 15, 0.12, 0xffd08a);
@@ -745,12 +808,17 @@ function updatePlayer(dt, time) {
     // Free flight: thrust follows the cockpit's orientation.
     const f = forwardOf(P.q), r = V(1, 0, 0).applyQuaternion(P.q), u = V(0, 1, 0).applyQuaternion(P.q);
     const vert = (input.riseHeld ? 1 : 0) - (input.diveHeld ? 1 : 0);
-    const thrust = f.multiplyScalar(my).addScaledVector(r, mx).addScaledVector(u, vert);
+    // While boosting you fly where you look: look down to dive, up to climb.
+    const autoFwd = wantSprint && Math.abs(mx) < 0.1 && !vert ? 1 : 0;
+    const fwdIn = Math.abs(my) > 0.05 ? my : autoFwd;
+    const fy = f.y;
+    const thrust = f.multiplyScalar(fwdIn).addScaledVector(r, mx).addScaledVector(u, vert);
     if (thrust.length() > 1) thrust.normalize();
     P.boosting = wantSprint && thrust.length() > 0.1;
     const acc = (P.boosting ? T.airBoostAccel : T.airAccel) * fs * (P.overheat ? 0.2 : 1);
     P.vel.addScaledVector(thrust, acc * dt);
     P.vel.y -= (P.overheat ? 30 : thrust.length() > 0.1 ? 3 : 12) * dt;
+    if (P.boosting && fwdIn > 0 && fy < -0.25) P.vel.y += fy * 45 * dt; // dive assist
     P.vel.multiplyScalar(Math.exp(-0.45 * dt));
     const max = (P.boosting ? T.airBoostMax : T.airMax) * fs, s = P.vel.length();
     if (s > max) P.vel.multiplyScalar(Math.exp(-dt * 2.6 * (s - max) / max));
@@ -801,12 +869,39 @@ function updatePlayer(dt, time) {
   if (feet < 0) { P.pos.y = EYE; if (P.vel.y < 0) P.vel.y = 0; landed = true; }
   if (P.mode === 'air') {
     const g = groundAt(arena.colliders, P.pos.x, P.pos.z, feet, RAD * 0.6);
-    if ((landed || feet <= g + HOVER + 0.4) && P.vel.y <= 2 && !input.riseHeld) toGround(clamp(-vyBefore / 45, 0, 1));
+    if ((landed || feet <= g + HOVER + 0.4) && P.vel.y <= 2 && !input.riseHeld) {
+      // Boost-dive into the ground: convert the drop into skating speed
+      if (vyBefore < -15 && input.sprintHold) {
+        const fyaw = facingYaw(), h = V(P.vel.x, 0, P.vel.z);
+        const dirH = h.lengthSq() > 25 ? h.normalize() : V(-Math.sin(fyaw), 0, -Math.cos(fyaw));
+        P.vel.addScaledVector(dirH, Math.min(70, -vyBefore * 0.6));
+        dustRing(P.pos.x, feet, P.pos.z, 30);
+      }
+      toGround(clamp(-vyBefore / 45, 0, 1) * (input.sprintHold ? 0.5 : 1));
+    }
   }
 }
 
 // ---------- Camera ----------
 const _tq = new THREE.Quaternion();
+let ownMech = null, camThird = 24;
+function rebuildOwnMech() {
+  if (ownMech) scene.remove(ownMech);
+  ownMech = buildMech(settings.frame);
+  ownMech.visible = false;
+  scene.add(ownMech);
+}
+function poseOwnMech(dt, show) {
+  if (!ownMech) return;
+  ownMech.visible = show && P.alive && camThird > 6;
+  if (!ownMech.visible) return;
+  const yaw = facingYaw() + Math.PI, f = camForward();
+  const tilt = P.mode === 'air' ? -Math.asin(clamp(f.y, -1, 1)) * 0.7 : 0;
+  ownMech.position.set(P.pos.x, P.pos.y - EYE, P.pos.z);
+  ownMech.rotation.set(tilt, yaw, P.mode === 'ground' ? -P.roll * 1.5 : 0, 'YXZ');
+  const lv = P.vel.clone().applyAxisAngle(AY, -yaw);
+  animateMech(ownMech.userData.rig, { fwd: lv.z, side: lv.x, up: P.vel.y, speed: Math.hypot(P.vel.x, P.vel.z), air: P.mode === 'air', phase: P.phase, boost: P.boosting, dt, aimPitch: P.mode === 'ground' ? P.pitch : 0 });
+}
 let shakeT = 0;
 function updateCamera(dt, time) {
   const sp = P.vel.length();
@@ -827,7 +922,19 @@ function updateCamera(dt, time) {
   shakeT += dt * 40;
   const s = P.shake * 0.35;
   camera.position.copy(P.pos);
-  if (P.mode === 'ground') camera.position.y += Math.sin(P.phase * 2) * 0.12 * clamp(sp / 80, 0, 1);
+  const tp = thirdPerson();
+  if (tp) {
+    // Chase camera behind and above the mech, pulled in front of walls.
+    const pivot = P.pos.clone().add(V(0, 1.5, 0));
+    const back = V(0, 4.5, 24 + clamp(sp / 200, 0, 1) * 6).applyQuaternion(P.viewQ);
+    const L = back.length();
+    _ray.set(pivot, back.clone().divideScalar(L));
+    const hitD = rayArena(arena.colliders, _ray, L + 2);
+    camThird = Math.min(L, hitD - 2.5);
+    camera.position.copy(pivot).addScaledVector(back, Math.max(3, camThird) / L);
+    if (camera.position.y < 1.5) camera.position.y = 1.5;
+  } else if (P.mode === 'ground') camera.position.y += Math.sin(P.phase * 2) * 0.12 * clamp(sp / 80, 0, 1);
+  poseOwnMech(dt, tp);
   camera.position.add(V(Math.sin(shakeT * 1.3) * s, Math.sin(shakeT * 1.7 + 1) * s, Math.sin(shakeT * 1.1 + 2) * s).applyQuaternion(P.viewQ));
   camera.quaternion.multiply(_q.setFromEuler(new THREE.Euler(Math.sin(shakeT * 0.9) * P.shake * 0.01, Math.sin(shakeT * 1.2) * P.shake * 0.01, 0)));
   P.fovKick *= Math.exp(-dt * 4);
@@ -1084,6 +1191,7 @@ function applyFrameStats() {
 function begin() {
   sfx.start();
   applyFrameStats();
+  rebuildOwnMech();
   respawn();
   P.kills = 0; P.deaths = 0;
   for (const t of targets) { t.alive = true; t.hp = t.maxHp; }
@@ -1109,7 +1217,7 @@ function resume() {
 $('btnTrain').onclick = () => { net?.close(); net = null; mode = 'training'; begin(); };
 $('btnHost').onclick = () => startPvP(true);
 $('btnJoin').onclick = () => startPvP(false);
-$('btnResume').onclick = () => { applyFrameStats(); resume(); };
+$('btnResume').onclick = () => { applyFrameStats(); if (ownMech?.userData.rig.frame !== settings.frame) rebuildOwnMech(); resume(); };
 $('btnLeave').onclick = () => { if (mode === 'pvp') leaveMatch(); else showMenu(false); };
 $('pilotName').value = settings.name;
 $('pilotName').oninput = e => { settings.name = e.target.value.slice(0, 16).toUpperCase(); saveSettings(); };
@@ -1117,10 +1225,12 @@ $('roomCode').oninput = e => { e.target.value = e.target.value.toUpperCase(); };
 $('sens').value = settings.sens; $('sens').oninput = e => { settings.sens = +e.target.value; saveSettings(); };
 $('invert').checked = settings.invert; $('invert').onchange = e => { settings.invert = e.target.checked; saveSettings(); };
 $('autoLevel').checked = settings.autoLevel; $('autoLevel').onchange = e => { settings.autoLevel = e.target.checked; saveSettings(); };
+$('viewSel').value = settings.view; $('viewSel').onchange = e => { settings.view = e.target.value; saveSettings(); };
+$('aim').value = settings.aim; $('aim').oninput = e => { settings.aim = +e.target.value; saveSettings(); };
 $('spar').checked = settings.spar; $('spar').onchange = e => { settings.spar = e.target.checked; saveSettings(); };
 $('controlsHelp').innerHTML = isTouch
-  ? 'Left thumb: move (push to the edge to skate-sprint) · Right thumb: look · FIRE can be dragged to aim · RISE to fly'
-  : 'WASD move · Mouse look · Shift skate-sprint / air boost · Space rise / fly · Ctrl or C dive · Q quick boost · LMB fire · E / RMB missile · R reset · M mute';
+  ? 'Left thumb: move (push to the edge to skate-sprint) · Right thumb: look · FIRE can be dragged to aim · RISE to fly · While boosting you fly where you look: look down to dive · 👁 switches cockpit / 3rd-person'
+  : 'WASD move · Mouse look · Shift skate-sprint / air boost · Space rise / fly · Ctrl or C dive · V cockpit / 3rd-person · Q quick boost · LMB fire · E / RMB missile · R reset · M mute';
 buildFramePicker();
 if (new URLSearchParams(location.search).get('room')) $('roomCode').value = new URLSearchParams(location.search).get('room').toUpperCase().slice(0, 4);
 
@@ -1165,7 +1275,8 @@ function frame() {
     sfx.engine(0, false, false);
     if (net?.online && mode === 'pvp') { updatePlayer(dt, time); sendState(dt); }
   }
-  cockpit.root.visible = state !== 'menu';
+  cockpit.root.visible = state !== 'menu' && !thirdPerson();
+  if (ownMech && state === 'menu') ownMech.visible = false;
   updateTargets(dt, time);
   updateRemotes(dt);
   updateEnemyShots(dt);

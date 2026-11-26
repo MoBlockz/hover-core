@@ -31,6 +31,7 @@
     <div id="msg"></div>
     <div id="dead"><b>SYSTEM DOWN</b><small>Rebooting frame…</small></div>
     <button id="pauseBtn" aria-label="Pause">❚❚</button>
+    <button id="viewBtn" aria-label="Switch camera">👁</button>
     <div id="touch">
       <div id="stickBase"><div id="stickKnob"></div></div>
       <button id="bBoost" class="tb">BOOST</button>
@@ -62,6 +63,8 @@
       <details>
         <summary>SETTINGS &amp; CONTROLS</summary>
         <label>Look sensitivity <input id="sens" type="range" min="0.3" max="2.5" step="0.05"></label>
+        <label>Camera <select id="viewSel"><option value="cockpit">Cockpit (1st person)</option><option value="third">Third person</option></select></label>
+        <label>Auto-aim <input id="aim" type="range" min="0" max="2" step="0.1"></label>
         <label><input id="invert" type="checkbox"> Invert look Y</label>
         <label><input id="autoLevel" type="checkbox"> Auto-level horizon in flight</label>
         <label><input id="spar" type="checkbox"> Sparring AI in training</label>

@@ -8,6 +8,9 @@ First-person cockpit mech combat for mobile and desktop browsers. You hover-skat
 - **Cockpit view:** a 3D canopy frame and dashboard, with a live radar, armor/generator readout and weapons screen. The cockpit sways with acceleration.
 - **Hover skating:** sprinting uses alternating left/right skate pushes with the view leaning into each stride. You carve turns with low friction, and skating tops out above 450 km/h.
 - **Free flight:** hold RISE to take off. In the air the view has no pitch limit, so you can loop, roll and look anywhere, and thrust follows where you look. Auto-level is optional.
+- **Look down to dive:** while boosting in the air you fly wherever you look. Look down to dive at the ground, and you land straight into a skate that keeps your speed.
+- **Cockpit or third person:** tap 👁 (or press V) to switch.
+- **Auto-aim:** shots near a target bend onto it, and the view gently tracks targets while you move fast. Adjust it with the Auto-aim slider in Settings.
 - **Quick boost:** an instant dash in any direction for dodging.
 - **Weapons:** a rifle with light aim assist, plus homing missiles that lock onto the target closest to your reticle.
 - **Three low-poly frames:** STRIDER (olive, balanced), WRAITH (purple, fast) and BASTION (gunmetal, heavy).
@@ -25,6 +28,7 @@ First-person cockpit mech combat for mobile and desktop browsers. You hover-skat
 | Quick boost | QB | Q |
 | Fire rifle | FIRE | Left click |
 | Missile | MSL | E / right click |
+| Switch camera | 👁 | V |
 | Pause | ❚❚ | Esc |
 
 ## Run locally
