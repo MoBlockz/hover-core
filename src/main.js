@@ -786,7 +786,7 @@ function updateWeapons(dt) {
     if (a < ca && hasLOS(P.pos, t.center)) { ca = a; cand = t; }
   }
   const cone = (isTouch ? 0.11 : 0.07) * settings.aim; // ~6 deg touch / 4 deg mouse at default
-  aimMagnet(dt, f, ao, cand, ca, cone * 2.2);
+  if (!M.noAssist) aimMagnet(dt, f, ao, cand, ca, cone * 2.2);
   if (cand && cand === P.lock) P.lockT += dt; else { P.lock = cand; P.lockT = 0; }
   const wasLocked = P.locked;
   P.locked = !!P.lock && P.lockT > 0.45;
@@ -801,7 +801,7 @@ function updateWeapons(dt) {
     P.gunIdx = ws.four ? 1 - P.gunIdx : 0;
     const mz = muzzlePos(P.gunIdx);
     // Auto-aim: shots near a target bend onto it (helps hitting at Gundam speeds)
-    const assisted = cand && ca < cone && cand.center.distanceTo(ao) < (M.range || 900);
+    const assisted = !M.noAssist && cand && ca < cone && cand.center.distanceTo(ao) < (M.range || 900);
     const base = assisted ? cand.center.clone().sub(ao).normalize() : f.clone();
     if (M.shell) {
       const dir = aimPoint(ao, base).sub(mz).normalize();
@@ -1056,9 +1056,8 @@ function updatePlayer(dt, time) {
     P.vel.multiplyScalar(Math.exp(-0.45 * dt));
     const max = (P.boosting ? T.airBoostMax * bs : T.airMax) * fs * W().air, s = P.vel.length();
     if (s > max && !P.lunge) P.vel.multiplyScalar(Math.exp(-dt * 2.6 * (s - max) / max));
-    // Cruising recharges the generator; boosting/climbing drains it slowly.
-    if (P.boosting || input.riseHeld) P.energy -= dt * (0.5 + (P.boosting ? 7 : 0) + (input.riseHeld ? 2.5 : 0)) * W().drain;
-    else P.energy += dt * 4 * W().regen;
+    // Flight always burns fuel; boosting/climbing burns much more.
+    P.energy -= dt * (1.5 + (P.boosting ? 14 : 0) + (input.riseHeld ? 4 : 0)) * W().drain;
     P.phase += dt;
     if (P.boosting) {
       const back = forwardOf(P.q).multiplyScalar(-1);
