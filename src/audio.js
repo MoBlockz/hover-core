@@ -57,6 +57,7 @@ export class Sfx {
   hurt() { this._noise(0.2, 400, 0.5, 0.45, 'lowpass', 80); this._tone(0.2, 120, 50, 0.2); }
   boom(vol = 0.7) { this._noise(0.9, 600, 0.5, vol, 'lowpass', 40); }
   missile() { this._noise(0.5, 800, 1.2, 0.3, 'bandpass', 2500); }
+  slash() { this._noise(0.22, 3000, 1.2, 0.4, 'bandpass', 600); this._tone(0.18, 900, 300, 0.08, 'sawtooth'); }
   lock() { this._tone(0.07, 1760, 1760, 0.08, 'square'); }
   beep() { this._tone(0.05, 880, 880, 0.06, 'square'); }
   warn() { this._tone(0.15, 660, 440, 0.12, 'square'); }

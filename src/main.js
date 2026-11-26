@@ -5,6 +5,7 @@ import { Particles, Tracers, Flashes, SpeedLines } from './fx.js';
 import { Sfx } from './audio.js';
 import { Net, makeCode } from './net.js';
 import { Cockpit } from './cockpit.js';
+import { sanitizeLoadout, loadoutSig, loadoutStats, defaultLoadout, MAIN, SIDE, MELEE, HEADS, ARMS, HANDS, COLORS, ACCENTS, EYES } from './loadout.js';
 
 const $ = id => document.getElementById(id);
 const V = (x = 0, y = 0, z = 0) => new THREE.Vector3(x, y, z);
@@ -25,6 +26,17 @@ const T = {
 const settings = Object.assign({ sens: 1, invert: false, autoLevel: true, spar: true, frame: 'strider', view: 'cockpit', aim: 1, name: '', muted: false },
   JSON.parse(localStorage.getItem('hovercore') || '{}'));
 const saveSettings = () => localStorage.setItem('hovercore', JSON.stringify(settings));
+settings.loadout = sanitizeLoadout({ ...defaultLoadout(settings.frame), ...(settings.loadout || {}), frame: settings.frame });
+delete settings.view;
+// Current loadout stats (hp, speed, main/side/melee weapon tables)
+const W = () => loadoutStats(settings.loadout);
+function setLoadout(patch) {
+  settings.loadout = sanitizeLoadout({ ...settings.loadout, ...patch });
+  settings.frame = settings.loadout.frame;
+  saveSettings();
+  updatePreview();
+}
+const TP_TIME = 10, TP_COOLDOWN = 10;
 
 // ---------- Renderer / scene ----------
 const renderer = new THREE.WebGLRenderer({ antialias: !isTouch, powerPreference: 'high-performance' });
@@ -90,12 +102,13 @@ const P = {
   fireCd: 0, ammo: 60, reloadT: 0, msl: 4, mslT: 0, lock: null, lockT: 0, locked: false,
   shake: 0, roll: 0, rollKick: 0, fovKick: 0, kills: 0, deaths: 0, lastShot: 0,
   shadow: makeShadow(10), sway: V(), prevVel: V(), invuln: 0,
+  meleeCd: 0, swingT: 1, swingArm: 0, lunge: null, extraHit: null, gunIdx: 0, tpT: 0, tpCd: 0,
 };
-const AMMO_MAX = 60, MSL_MAX = 4;
+
 
 // ---------- Input ----------
 const keys = {};
-const input = { mx: 0, my: 0, fire: false, rise: false, dive: false, sprintHold: false, sprintToggle: false, autoSprint: false, qb: false, msl: false };
+const input = { mx: 0, my: 0, fire: false, rise: false, dive: false, sprintHold: false, sprintToggle: false, autoSprint: false, qb: false, msl: false, melee: false };
 const stick = { id: null, ox: 0, oy: 0, x: 0, y: 0, edgeT: 0 };
 let lookPtr = null;
 const look = { dx: 0, dy: 0 };
@@ -113,6 +126,7 @@ addEventListener('keydown', e => {
   if (state !== 'playing') return;
   if (e.code === 'KeyQ') input.qb = true;
   if (e.code === 'KeyE') input.msl = true;
+  if (e.code === 'KeyF') input.melee = true;
   if (e.code === 'KeyV') toggleView();
   if (e.code === 'KeyM') { settings.muted = !settings.muted; sfx.setMuted(settings.muted); saveSettings(); }
   if (e.code === 'KeyR' && mode === 'training') respawn();
@@ -129,6 +143,7 @@ canvas.addEventListener('mousedown', e => {
   if (!document.pointerLockElement) { lockPointer(); return; }
   if (e.button === 0) input.fire = true;
   if (e.button === 2) input.msl = true;
+  if (e.button === 1) { e.preventDefault(); input.melee = true; }
 });
 addEventListener('mouseup', e => { if (e.button === 0) input.fire = false; });
 addEventListener('contextmenu', e => e.preventDefault());
@@ -198,14 +213,30 @@ function bindButton(id, down, up, dragLook = false) {
 bindButton('bFire', () => input.fire = true, () => input.fire = false, true);
 bindButton('bMsl', () => input.msl = true);
 bindButton('bQB', () => input.qb = true);
+bindButton('bMelee', () => input.melee = true);
 bindButton('bRise', () => input.rise = true, () => input.rise = false, true);
 bindButton('bDive', () => input.dive = true, () => input.dive = false);
 bindButton('bBoost', () => { input.sprintToggle = !input.sprintToggle; }, null);
 $('viewBtn').addEventListener('click', () => toggleView());
+// Third person is a timed ability: 10s on, then a 10s cooldown.
 function toggleView() {
-  settings.view = settings.view === 'third' ? 'cockpit' : 'third'; saveSettings();
-  $('viewSel').value = settings.view;
-  showMsg(settings.view === 'third' ? 'THIRD-PERSON VIEW' : 'COCKPIT VIEW', 1);
+  if (state !== 'playing') return;
+  if (P.tpT > 0) { P.tpT = 0; P.tpCd = TP_COOLDOWN; showMsg('COCKPIT VIEW', 1); return; }
+  if (P.tpCd > 0) { showMsg(`3RD-PERSON RECHARGING · ${Math.ceil(P.tpCd)}s`, 1, 'bad'); sfx.beep(); return; }
+  P.tpT = TP_TIME; showMsg('THIRD-PERSON VIEW · 10s', 1);
+}
+function tickView(dt) {
+  if (P.tpT > 0) {
+    P.tpT -= dt;
+    if (P.tpT <= 0) { P.tpT = 0; P.tpCd = TP_COOLDOWN; showMsg('COCKPIT VIEW · 3RD-PERSON RECHARGING', 1.4); }
+  } else if (P.tpCd > 0) {
+    P.tpCd -= dt;
+    if (P.tpCd <= 0) { P.tpCd = 0; showMsg('3RD-PERSON READY', 1, 'good'); }
+  }
+  const b = $('viewBtn');
+  b.textContent = P.tpT > 0 ? '👁 ' + Math.ceil(P.tpT) : P.tpCd > 0 ? Math.ceil(P.tpCd) + 's' : '👁';
+  b.classList.toggle('active', P.tpT > 0);
+  b.classList.toggle('cool', P.tpCd > 0);
 }
 
 // ---------- Stop the mobile browser from zooming the page ----------
@@ -328,6 +359,7 @@ const targets = []; // {kind, obj, hp, maxHp, alive, respawnT, spheres, center()
 const MECH_SPHERES = [{ y: 9, r: 3.8 }, { y: 4.2, r: 3.0 }];
 function mechTarget(kind, frame, name, hp) {
   const obj = buildMech(frame);
+  obj.userData.swingT = 1;
   scene.add(obj);
   return { kind, obj, frame, hp, maxHp: hp, alive: true, respawnT: 0, spheres: MECH_SPHERES, name, shadow: makeShadow(9),
     center: V(), vel: V(), phase: Math.random() * 6, air: false };
@@ -352,7 +384,7 @@ for (let i = 0; i < 5; i++) {
 }
 
 // Sparring partner AI
-const ai = mechTarget('ai', 'wraith', 'SPARRING AI', 100);
+const ai = mechTarget('ai', { frame: 'wraith', head: 'horned', arms: 'two', hands: 'hands', main: 'rifle', side: 'none', melee: 'saber' }, 'SPARRING AI', 100);
 Object.assign(ai, { pos: V(0, EYE + HOVER, -520), mode: 'ground', yaw: 0, strideT: 0, side: 1, fireT: 3, burst: 0, burstT: 0,
   orbitDir: 1, wantDist: 180, thinkT: 0, airT: 0, altTarget: 80, qbCd: 0, stuckT: 0 });
 targets.push(ai);
@@ -470,13 +502,20 @@ function updateAI(a, dt) {
   a.obj.position.set(a.pos.x, a.pos.y - EYE, a.pos.z);
   a.obj.rotation.y = a.yaw;
   const lv = a.vel.clone().applyAxisAngle(AY, -a.yaw);
-  animateMech(a.obj.userData.rig, { fwd: lv.z, side: lv.x, up: a.vel.y, speed: hs, air: a.mode === 'air', phase: a.phase, boost: hs > 80, dt, aimPitch: Math.atan2(toP.y, fd) });
+a.swingT = Math.min(1, (a.swingT ?? 1) + dt / 0.4);
+  animateMech(a.obj.userData.rig, { fwd: lv.z, side: lv.x, up: a.vel.y, speed: hs, air: a.mode === 'air', phase: a.phase, boost: hs > 80, dt, aimPitch: Math.atan2(toP.y, fd), swing: { t: a.swingT, arm: 0 } });
   a.center.set(a.pos.x, a.pos.y - EYE + 8, a.pos.z);
   placeShadow(a.shadow, a.pos.x, a.pos.y - EYE, a.pos.z);
   if (a.mode === 'ground' && hs > 30 && Math.random() < 0.5) particles.spawn(a.pos.x + (Math.random() - 0.5) * 4, a.pos.y - EYE + 0.4, a.pos.z + (Math.random() - 0.5) * 4, -a.vel.x * 0.2, 3, -a.vel.z * 0.2, 0.5, 0x7a8c96, 2, 1);
 
   // Fire bursts at the player
   if (!P.alive || state !== 'playing') return;
+  // Close range: lunge and slash with the beam saber
+  a.meleeCd = (a.meleeCd ?? 2) - dt;
+  if (dist < 40 && a.meleeCd <= 0) { a.meleeCd = 2.6; a.vel.addScaledVector(toP.clone().normalize(), 130); a.swingT = 0; a.pendingHit = 0.22; }
+  if (a.pendingHit > 0 && (a.pendingHit -= dt) <= 0) {
+    if (a.pos.distanceTo(P.pos) < 17) { takeDamage(10, 'ai', a.pos); slashFx(P.pos.clone().add(V(0, -2, 0)), camera.quaternion, MELEE.saber.color, 0.8); }
+  }
   a.fireT -= dt;
   if (a.fireT <= 0 && dist < 520 && hasLOS(a.center, P.pos)) { a.burst = 4; a.burstT = 0; a.fireT = 2.0 + Math.random() * 1.5; }
   if (a.burst > 0 && (a.burstT -= dt) <= 0) {
@@ -570,11 +609,60 @@ function showHitMarker() { hitMarkT = 0.15; }
 const missiles = [];
 const mslGeo = new THREE.ConeGeometry(0.4, 2.6, 5).rotateX(Math.PI / 2);
 const mslMat = new THREE.MeshStandardMaterial({ color: 0xd6d6c8, flatShading: true });
-function spawnMissile(p, v, target, owner, cosmetic) {
+function spawnMissile(p, v, target, owner, cosmetic, dmg = 18, size = 1) {
   const m = new THREE.Mesh(mslGeo, mslMat);
-  m.position.copy(p);
+  m.position.copy(p); m.scale.setScalar(size);
   scene.add(m);
-  missiles.push({ m, v: v.clone(), target, owner, cosmetic, life: 4.5 });
+  missiles.push({ m, v: v.clone(), target, owner, cosmetic, life: 4.5, dmg, size });
+}
+
+// Explosive shells (bazooka / shoulder cannon)
+const shells = [];
+const shellGeo = new THREE.IcosahedronGeometry(0.75, 0);
+function spawnShell(p, v, dmg, splash, cosmetic, color = 0xffa040, size = 1) {
+  const m = new THREE.Mesh(shellGeo, glow(color));
+  m.position.copy(p); m.scale.setScalar(size);
+  scene.add(m);
+  shells.push({ m, v: v.clone(), dmg, splash, cosmetic, life: 4, color });
+}
+function updateShells(dt) {
+  for (let i = shells.length - 1; i >= 0; i--) {
+    const s = shells[i];
+    s.m.position.addScaledVector(s.v, dt);
+    s.v.y -= 6 * dt; s.life -= dt;
+    const p = s.m.position;
+    particles.spawn(p.x, p.y, p.z, (Math.random() - 0.5) * 4, 1, (Math.random() - 0.5) * 4, 0.5, s.color, 2);
+    let boom = s.life <= 0 || pointInArena(arena.colliders, p);
+    if (!boom) for (const t of liveTargets()) if (t.center.distanceTo(p) < 6.5) { boom = true; break; }
+    if (!boom && s.cosmetic && P.alive && p.distanceTo(P.pos) < 6.5) boom = true;
+    if (!boom) continue;
+    explode(p.clone(), Math.max(0.7, s.splash / 14));
+    if (!s.cosmetic) for (const t of liveTargets()) {
+      const d = t.center.distanceTo(p), r = s.splash + 4;
+      if (d < r) damageTarget(t, Math.round(s.dmg * clamp(1.2 - d / r, 0.4, 1)), p);
+    }
+    scene.remove(s.m); shells.splice(i, 1);
+  }
+}
+
+// Close-range slash arcs
+const slashes = [];
+const slashGeo = new THREE.RingGeometry(5, 7.2, 18, 1, 0, 2.5);
+function slashFx(pos, quat, color, size = 1) {
+  const m = new THREE.Mesh(slashGeo, new THREE.MeshBasicMaterial({ color, transparent: true, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, depthWrite: false }));
+  m.position.copy(pos); m.quaternion.copy(quat); m.rotateZ(-0.4 + Math.random() * 0.8 + (Math.random() < 0.5 ? Math.PI : 0));
+  m.scale.setScalar(size);
+  scene.add(m);
+  slashes.push({ m, t: 0.22 });
+}
+function updateSlashes(dt) {
+  for (let i = slashes.length - 1; i >= 0; i--) {
+    const s = slashes[i];
+    s.t -= dt;
+    s.m.material.opacity = Math.max(0, s.t / 0.22);
+    s.m.scale.multiplyScalar(1 + dt * 2.5);
+    if (s.t <= 0) { scene.remove(s.m); s.m.material.dispose(); slashes.splice(i, 1); }
+  }
 }
 function updateMissiles(dt) {
   for (let i = missiles.length - 1; i >= 0; i--) {
@@ -598,23 +686,41 @@ function updateMissiles(dt) {
     let boom = s.life <= 0 || pointInArena(arena.colliders, s.m.position);
     if (!boom && tgtPos && s.m.position.distanceTo(tgtPos) < 6) {
       boom = true;
-      if (!s.cosmetic && s.target !== 'me') damageTarget(s.target, 18, s.m.position);
+      if (!s.cosmetic && s.target !== 'me') damageTarget(s.target, s.dmg, s.m.position);
     }
-    if (boom) { explode(s.m.position.clone(), 0.6); scene.remove(s.m); missiles.splice(i, 1); }
+    if (boom) { explode(s.m.position.clone(), 0.6 * s.size); scene.remove(s.m); missiles.splice(i, 1); }
   }
 }
 
 function camForward() { return V(0, 0, -1).applyQuaternion(P.viewQ); }
-const thirdPerson = () => settings.view === 'third';
+const thirdPerson = () => P.tpT > 0;
 // Point on the crosshair ray closest to the mech: shots start here so 3rd-person aim matches the reticle.
 function aimOrigin() {
   if (!thirdPerson()) return P.pos.clone();
   const f = camForward(), c = camera.position;
   return c.clone().addScaledVector(f, Math.max(0, P.pos.clone().sub(c).dot(f)));
 }
-function muzzlePos() {
-  if (thirdPerson() && ownMech && ownMech.visible) { ownMech.updateMatrixWorld(true); return ownMech.userData.rig.muzzle.getWorldPosition(V()); }
-  return V(2.2, -2.4, -4).applyQuaternion(P.viewQ).add(P.pos);
+function muzzlePos(i = 0) {
+  if (thirdPerson() && ownMech && ownMech.visible) {
+    ownMech.updateMatrixWorld(true);
+    const m = ownMech.userData.rig.muzzles;
+    return m[i % m.length].getWorldPosition(V());
+  }
+  return (i ? V(2.8, -3.8, -3.5) : V(2.2, -2.4, -4)).applyQuaternion(P.viewQ).add(P.pos);
+}
+function sideMuzzlePos(i) {
+  if (thirdPerson() && ownMech && ownMech.visible) {
+    const m = ownMech.userData.rig.sideMuzzles;
+    if (m.length) { ownMech.updateMatrixWorld(true); return m[i % m.length].getWorldPosition(V()); }
+  }
+  return V(i % 2 ? -3 : 3, 1.5, -2).applyQuaternion(P.viewQ).add(P.pos);
+}
+// Where the crosshair is pointing (first wall/target hit)
+function aimPoint(ao, dir, range = 900) {
+  _ray.set(ao, dir);
+  const wall = rayArena(arena.colliders, _ray, range);
+  const hit = rayTargets(ao, dir, wall);
+  return ao.clone().addScaledVector(dir, hit.t ? hit.dist : wall);
 }
 // Aim assist: gently pull the view toward a target near the crosshair.
 function aimMagnet(dt, f, o, t, ang, cone) {
@@ -637,9 +743,10 @@ function aimMagnet(dt, f, o, t, ang, cone) {
 }
 
 function updateWeapons(dt) {
+  const ws = W(), M = ws.main, S = ws.side;
   P.fireCd -= dt;
-  if (P.reloadT > 0 && (P.reloadT -= dt) <= 0) P.ammo = AMMO_MAX;
-  if (P.msl < MSL_MAX && (P.mslT -= dt) <= 0) { P.msl++; P.mslT = 2.4; }
+  if (P.reloadT > 0 && (P.reloadT -= dt) <= 0) P.ammo = M.mag;
+  if (P.msl < S.count && (P.mslT -= dt) <= 0) { P.msl++; P.mslT = S.regen; }
 
   // Lock-on: closest target to the reticle inside a cone
   const f = camForward(), ao = aimOrigin();
@@ -658,40 +765,126 @@ function updateWeapons(dt) {
   if (P.locked && !wasLocked) sfx.lock();
 
   if (!P.alive) { input.msl = false; return; }
-  if (input.fire && P.fireCd <= 0 && P.reloadT <= 0) {
-    P.fireCd = 0.095; P.ammo--; P.lastShot = performance.now();
-    if (P.ammo <= 0) { P.reloadT = 1.8; P.ammo = 0; }
-    let dir = f.clone();
+  if (input.fire && P.fireCd <= 0 && P.reloadT <= 0 && P.ammo > 0) {
+    // Quad arms dual-wield: faster fire, alternating guns
+    P.fireCd = M.rate / (ws.four ? 1.6 : 1); P.ammo--; P.lastShot = performance.now();
+    if (P.ammo <= 0) P.reloadT = M.reload;
+    P.gunIdx = ws.four ? 1 - P.gunIdx : 0;
+    const mz = muzzlePos(P.gunIdx);
     // Auto-aim: shots near a target bend onto it (helps hitting at Gundam speeds)
-    const assisted = cand && ca < cone;
-    if (assisted) dir = cand.center.clone().sub(ao).normalize();
-    const spread = assisted ? 0.004 : 0.012;
-    dir.add(V((Math.random() - 0.5) * spread, (Math.random() - 0.5) * spread, (Math.random() - 0.5) * spread)).normalize();
-    _ray.set(ao, dir);
-    const wall = rayArena(arena.colliders, _ray, 900);
-    const hit = rayTargets(ao, dir, wall);
-    const end = ao.clone().addScaledVector(dir, hit.t ? hit.dist : wall);
-    const mz = muzzlePos();
-    tracers.add(mz, end, 0xffc37a, 1.3);
-    particles.burst(mz, 4, 15, 0.12, 0xffd08a);
-    if (hit.t) { damageTarget(hit.t, 5, end); particles.burst(end, 10, 25, 0.35, 0xffe0a0, 15); }
-    else if (wall < 900) particles.burst(end, 8, 20, 0.4, 0xc8c0a8, 20);
-    P.shake = Math.max(P.shake, 0.08);
-    sfx.shot();
-    if (mode === 'pvp') net.sendEvent({ type: 'shot', a: vArr(mz), b: vArr(end) });
+    const assisted = cand && ca < cone && cand.center.distanceTo(ao) < (M.range || 900);
+    const base = assisted ? cand.center.clone().sub(ao).normalize() : f.clone();
+    if (M.shell) {
+      const dir = aimPoint(ao, base).sub(mz).normalize();
+      const v = dir.multiplyScalar(M.shellSpeed).add(P.vel.clone().multiplyScalar(0.5));
+      spawnShell(mz, v, M.dmg, M.splash, false, M.color, 1);
+      if (mode === 'pvp') net.sendEvent({ type: 'shell', p: vArr(mz), v: vArr(v), c: M.color, s: 1 });
+      P.shake = Math.max(P.shake, 0.4); sfx.missile();
+    } else {
+      const ends = [];
+      const spread = M.pellets > 1 ? M.spread : assisted ? M.spread * 0.3 : M.spread;
+      for (let k = 0; k < M.pellets; k++) {
+        const dir = base.clone().add(V((Math.random() - 0.5) * spread, (Math.random() - 0.5) * spread, (Math.random() - 0.5) * spread)).normalize();
+        _ray.set(ao, dir);
+        const wall = rayArena(arena.colliders, _ray, M.range);
+        const hit = rayTargets(ao, dir, wall);
+        const end = ao.clone().addScaledVector(dir, hit.t ? hit.dist : wall);
+        tracers.add(mz, end, M.color, M.width);
+        if (hit.t) { damageTarget(hit.t, M.dmg, end); particles.burst(end, 6, 25, 0.35, 0xffe0a0, 15); }
+        else if (wall < M.range) particles.burst(end, 5, 20, 0.4, 0xc8c0a8, 20);
+        ends.push(vArr(end));
+      }
+      particles.burst(mz, 4 + M.pellets, 15, 0.12, 0xffd08a);
+      P.shake = Math.max(P.shake, M.dmg >= 20 || M.pellets > 1 ? 0.35 : 0.08);
+      if (M.dmg >= 20 || M.pellets > 1) P.fovKick = Math.max(P.fovKick, 4);
+      sfx.shot();
+      if (mode === 'pvp') net.sendEvent({ type: 'shot', a: vArr(mz), bs: ends, c: M.color, w: M.width });
+    }
   }
   if (input.msl) {
     input.msl = false;
-    if (P.msl > 0) {
-      P.msl--; if (P.mslT <= 0) P.mslT = 2.4;
+    if (S.count && P.msl > 0) {
+      const n = Math.min(S.per, P.msl);
+      P.msl -= n; if (P.mslT <= 0) P.mslT = S.regen;
       const tgt = P.locked ? P.lock : null;
-      const p = V(P.msl % 2 ? -3 : 3, 1.5, -2).applyQuaternion(P.viewQ).add(P.pos);
-      const v = f.clone().multiplyScalar(90).add(V(0, 25, 0)).add(P.vel);
-      spawnMissile(p, v, tgt, 'me', false);
+      for (let i = 0; i < n; i++) {
+        const p = sideMuzzlePos(i);
+        if (S.shell) {
+          const v = aimPoint(ao, tgt ? tgt.center.clone().sub(ao).normalize() : f).sub(p).normalize().multiplyScalar(S.shellSpeed).add(P.vel.clone().multiplyScalar(0.5));
+          spawnShell(p, v, S.dmg, S.splash, false, 0xff7a3a, 1.5);
+          if (mode === 'pvp') net.sendEvent({ type: 'shell', p: vArr(p), v: vArr(v), c: 0xff7a3a, s: 1.5 });
+          P.shake = Math.max(P.shake, 0.6); P.fovKick = Math.max(P.fovKick, 6);
+        } else {
+          const sp = S.per > 1 ? 40 : 0;
+          const v = f.clone().multiplyScalar(90).add(V(0, 25, 0)).add(V((Math.random() - 0.5) * sp, Math.random() * sp * 0.5, (Math.random() - 0.5) * sp)).add(P.vel);
+          const size = S.per > 1 ? 0.6 : 1;
+          spawnMissile(p, v, tgt, 'me', false, S.dmg, size);
+          if (mode === 'pvp') net.sendEvent({ type: 'msl', p: vArr(p), v: vArr(v), target: tgt ? tgt.id : null, d: S.dmg, s: size });
+        }
+      }
       sfx.missile();
-      if (mode === 'pvp') net.sendEvent({ type: 'msl', p: vArr(p), v: vArr(v), target: tgt ? tgt.id : null });
     } else sfx.beep();
   }
+}
+// Close-range attack: lunge at the nearest target in front and strike.
+function updateMelee(dt) {
+  const ws = W(), MM = ws.melee;
+  P.meleeCd -= dt;
+  if (P.swingT < 1) P.swingT = Math.min(1, P.swingT + dt / (ws.melee === MELEE.blades ? 0.3 : 0.42));
+  if (P.extraHit && (P.extraHit.t -= dt) <= 0) {
+    const e = P.extraHit; P.extraHit = null;
+    if (e.target.alive && e.target.center.distanceTo(P.pos) < 20) meleeHit(e.target, Math.round(MM.dmg * 0.5), false);
+  }
+  if (input.melee) {
+    input.melee = false;
+    if (P.alive && P.meleeCd <= 0) {
+      P.meleeCd = MM.cd; P.swingT = 0; P.swingArm++;
+      const f = camForward();
+      let best = null, ba = 0.7;
+      for (const t of liveTargets()) {
+        const d = t.center.clone().sub(P.pos), L = d.length();
+        if (L > MM.range + 20) continue;
+        const a = f.angleTo(d.divideScalar(L));
+        if (a < ba && hasLOS(P.pos, t.center)) { ba = a; best = t; }
+      }
+      if (best) {
+        if (P.mode === 'ground' && best.center.y - P.pos.y > 6) { toAir(); P.blend = 0; }
+        P.lunge = { t: best, time: 0.3 };
+        P.fovKick = Math.max(P.fovKick, 10);
+      } else {
+        P.vel.addScaledVector(f, 45);
+        P.lunge = null;
+      }
+      slashFx(P.pos.clone().addScaledVector(f, 9), camera.quaternion, MM.color, 0.9);
+      sfx.slash();
+      P.shake = Math.max(P.shake, 0.2);
+      if (mode === 'pvp') net.sendEvent({ type: 'slash', p: vArr(P.pos.clone().addScaledVector(f, 9)), q: [camera.quaternion.x, camera.quaternion.y, camera.quaternion.z, camera.quaternion.w], c: MM.color, arm: P.swingArm });
+    } else if (P.alive) sfx.beep();
+  }
+  const L = P.lunge;
+  if (!L) return;
+  L.time -= dt;
+  if (!L.t.alive) { P.lunge = null; return; }
+  const d = L.t.center.clone().sub(P.pos), dist = d.length();
+  P.vel.lerp(d.normalize().multiplyScalar(Math.min(280, dist / 0.1)), 1 - Math.exp(-dt * 20));
+  if (dist < 11 || L.time <= 0) {
+    P.lunge = null;
+    if (dist < 17) {
+      meleeHit(L.t, MM.dmg, true);
+      if (ws.four) P.extraHit = { t: 0.13, target: L.t };
+    }
+  }
+}
+function meleeHit(t, dmg, first) {
+  const MM = W().melee;
+  damageTarget(t, dmg, t.center);
+  slashFx(t.center.clone(), camera.quaternion, MM.color, 1.2);
+  particles.burst(t.center, 30, 40, 0.5, MM.color, 5);
+  flashes.add(t.center, 4, MM.color, 0.2);
+  P.shake = Math.max(P.shake, 0.6);
+  sfx.boom(0.25);
+  if (first) P.vel.multiplyScalar(0.2);
+  if (t.vel && t.kind === 'ai') t.vel.addScaledVector(t.center.clone().sub(P.pos).normalize(), 70);
 }
 const vArr = v => [Math.round(v.x * 100) / 100, Math.round(v.y * 100) / 100, Math.round(v.z * 100) / 100];
 
@@ -726,14 +919,14 @@ function respawn() {
   P.pos.set(sp.x, EYE + HOVER, sp.z); P.vel.set(0, 0, 0);
   P.yaw = sp.yaw; P.pitch = 0; P.mode = 'ground'; groundQuat(P.viewQ);
   P.hp = P.maxHp; P.energy = 100; P.overheat = false; P.alive = true;
-  P.ammo = AMMO_MAX; P.reloadT = 0; P.msl = MSL_MAX; P.invuln = 2;
+  P.ammo = W().main.mag; P.reloadT = 0; P.msl = W().side.count; P.invuln = 2; P.lunge = null;
   $('dead').classList.remove('show');
 }
 
 // ---------- Player movement ----------
 const _wish = V(), _hv = V();
 function updatePlayer(dt, time) {
-  const F = FRAMES[settings.frame], fs = F.speed;
+  const fs = W().speed;
   P.qbCd -= dt; P.invuln -= dt;
   if (!P.alive) {
     P.vel.multiplyScalar(Math.exp(-dt * 2));
@@ -788,7 +981,7 @@ function updatePlayer(dt, time) {
     const drag = wl > 0.1 ? 0.22 : 1.2;
     _hv.multiplyScalar(Math.exp(-drag * dt));
     const hs = _hv.length();
-    if (hs > max) _hv.multiplyScalar(Math.exp(-dt * 2.6 * (hs - max) / max));
+    if (hs > max && !P.lunge) _hv.multiplyScalar(Math.exp(-dt * 2.6 * (hs - max) / max));
     P.vel.x = _hv.x; P.vel.z = _hv.z;
     // Hover spring
     const feet = P.pos.y - EYE;
@@ -821,7 +1014,7 @@ function updatePlayer(dt, time) {
     if (P.boosting && fwdIn > 0 && fy < -0.25) P.vel.y += fy * 45 * dt; // dive assist
     P.vel.multiplyScalar(Math.exp(-0.45 * dt));
     const max = (P.boosting ? T.airBoostMax : T.airMax) * fs, s = P.vel.length();
-    if (s > max) P.vel.multiplyScalar(Math.exp(-dt * 2.6 * (s - max) / max));
+    if (s > max && !P.lunge) P.vel.multiplyScalar(Math.exp(-dt * 2.6 * (s - max) / max));
     P.energy -= dt * (1.5 + (P.boosting ? 20 : 0) + (input.riseHeld ? 5 : 0));
     P.phase += dt;
     if (P.boosting) {
@@ -887,7 +1080,7 @@ const _tq = new THREE.Quaternion();
 let ownMech = null, camThird = 24;
 function rebuildOwnMech() {
   if (ownMech) scene.remove(ownMech);
-  ownMech = buildMech(settings.frame);
+  ownMech = buildMech(settings.loadout);
   ownMech.visible = false;
   scene.add(ownMech);
 }
@@ -900,7 +1093,7 @@ function poseOwnMech(dt, show) {
   ownMech.position.set(P.pos.x, P.pos.y - EYE, P.pos.z);
   ownMech.rotation.set(tilt, yaw, P.mode === 'ground' ? -P.roll * 1.5 : 0, 'YXZ');
   const lv = P.vel.clone().applyAxisAngle(AY, -yaw);
-  animateMech(ownMech.userData.rig, { fwd: lv.z, side: lv.x, up: P.vel.y, speed: Math.hypot(P.vel.x, P.vel.z), air: P.mode === 'air', phase: P.phase, boost: P.boosting, dt, aimPitch: P.mode === 'ground' ? P.pitch : 0 });
+  animateMech(ownMech.userData.rig, { fwd: lv.z, side: lv.x, up: P.vel.y, speed: Math.hypot(P.vel.x, P.vel.z), air: P.mode === 'air', phase: P.phase, boost: P.boosting, dt, aimPitch: P.mode === 'ground' ? P.pitch : 0, swing: { t: P.swingT, arm: P.swingArm } });
 }
 let shakeT = 0;
 function updateCamera(dt, time) {
@@ -926,7 +1119,7 @@ function updateCamera(dt, time) {
   if (tp) {
     // Chase camera behind and above the mech, pulled in front of walls.
     const pivot = P.pos.clone().add(V(0, 1.5, 0));
-    const back = V(0, 4.5, 24 + clamp(sp / 200, 0, 1) * 6).applyQuaternion(P.viewQ);
+    const back = V(6.5, 4.5, 24 + clamp(sp / 200, 0, 1) * 6).applyQuaternion(P.viewQ); // over the right shoulder
     const L = back.length();
     _ray.set(pivot, back.clone().divideScalar(L));
     const hitD = rayArena(arena.colliders, _ray, L + 2);
@@ -965,11 +1158,12 @@ function makeNet() {
         if (!s || !s.id || !Array.isArray(s.p)) continue;
         seen.add(s.id);
         let r = remotes.get(s.id);
-        const frame = FRAMES[s.f] ? s.f : 'strider';
-        if (r && r.frame !== frame) { removeRemote(s.id); r = null; }
+        const lo = sanitizeLoadout(s.lo || { frame: s.f });
+        const sig = loadoutSig(lo);
+        if (r && r.sig !== sig) { removeRemote(s.id); r = null; }
         if (!r) {
-          r = mechTarget('remote', frame, '', 100);
-          r.id = s.id; r.pos = V(...s.p); r.net = V(...s.p); r.netVel = V(); r.yaw = 0;
+          r = mechTarget('remote', lo, '', 100);
+          r.id = s.id; r.sig = sig; r.pos = V(...s.p); r.net = V(...s.p); r.netVel = V(); r.yaw = 0; r.swingT = 1; r.swingArm = 0;
           remotes.set(s.id, r);
         }
         r.net.set(...s.p); r.netVel.set(...(s.v || [0, 0, 0]));
@@ -983,13 +1177,20 @@ function makeNet() {
       if (!e || !e.type) return;
       if (e.type === 'hit' && e.target === net.id) takeDamage(+e.dmg || 0, e.from, remotes.get(e.from)?.pos);
       else if (e.type === 'shot' && Array.isArray(e.a) && e.from !== net.id) {
-        tracers.add(V(...e.a), V(...e.b), 0xff9a7a, 1.3);
+        const ends = Array.isArray(e.bs) ? e.bs.slice(0, 12) : Array.isArray(e.b) ? [e.b] : [];
+        for (const b of ends) if (Array.isArray(b)) tracers.add(V(...e.a), V(...b), Number.isInteger(e.c) ? e.c : 0xff9a7a, clamp(+e.w || 1.3, 0.5, 3));
         const d = V(...e.a).distanceTo(P.pos);
         sfx.enemyShot(clamp(0.3 - d / 2000, 0.02, 0.3));
       } else if (e.type === 'msl' && Array.isArray(e.p) && e.from !== net.id) {
         const tgt = e.target === net.id ? 'me' : remotes.get(e.target) || null;
-        spawnMissile(V(...e.p), V(...e.v), tgt, e.from, true);
+        spawnMissile(V(...e.p), V(...e.v), tgt, e.from, true, 0, clamp(+e.s || 1, 0.4, 1.5));
         if (tgt === 'me') { showMsg('⚠ MISSILE INCOMING', 1.2, 'bad'); sfx.warn(); }
+      } else if (e.type === 'shell' && Array.isArray(e.p) && e.from !== net.id) {
+        spawnShell(V(...e.p), V(...e.v), 0, clamp(+e.s || 1, 0.5, 2) * 12, true, Number.isInteger(e.c) ? e.c : 0xffa040, clamp(+e.s || 1, 0.5, 2));
+      } else if (e.type === 'slash' && Array.isArray(e.p) && e.from !== net.id) {
+        const r = remotes.get(e.from);
+        if (r) { r.swingT = 0; r.swingArm = +e.arm || 0; }
+        if (Array.isArray(e.q)) slashFx(V(...e.p), new THREE.Quaternion(...e.q).normalize(), Number.isInteger(e.c) ? e.c : 0xff6ab0, 0.9);
       } else if (e.type === 'kill' && e.victim !== net.id) onKill(e.killer, e.victim);
       else if (e.type === 'join') feed(`<i>A pilot joined</i>`);
       else if (e.type === 'leave') feed(`<i>${esc(nameOf(e.from))} left</i>`);
@@ -1020,7 +1221,8 @@ function updateRemotes(dt) {
     const lv = r.netVel.clone().applyAxisAngle(AY, -(r.yaw + Math.PI));
     const hs = Math.hypot(r.netVel.x, r.netVel.z);
     r.phase += r.air ? dt : (r.boost ? dt * Math.PI / T.stridePeriod : dt * hs / 14);
-    animateMech(r.obj.userData.rig, { fwd: lv.z, side: lv.x, up: r.netVel.y, speed: hs, air: r.air, phase: r.phase, boost: r.boost, dt, aimPitch: r.pitch });
+r.swingT = Math.min(1, r.swingT + dt / 0.4);
+    animateMech(r.obj.userData.rig, { fwd: lv.z, side: lv.x, up: r.netVel.y, speed: hs, air: r.air, phase: r.phase, boost: r.boost, dt, aimPitch: r.pitch, swing: { t: r.swingT, arm: r.swingArm } });
     r.center.set(r.pos.x, r.pos.y - EYE + 8, r.pos.z);
     placeShadow(r.shadow, r.pos.x, r.pos.y - EYE, r.pos.z, r.alive);
   }
@@ -1031,7 +1233,7 @@ function sendState(dt) {
   sendT = 1 / 15;
   const f = forwardOf(P.viewQ);
   net.sendState({
-    n: myName(), f: settings.frame, p: vArr(P.pos), v: vArr(P.vel), y: facingYaw(), pi: Math.round(Math.asin(clamp(f.y, -1, 1)) * 100) / 100,
+    n: myName(), f: settings.frame, lo: settings.loadout, p: vArr(P.pos), v: vArr(P.vel), y: facingYaw(), pi: Math.round(Math.asin(clamp(f.y, -1, 1)) * 100) / 100,
     a: P.mode === 'air' ? 1 : 0, b: P.boosting ? 1 : 0, h: Math.max(0, Math.round(P.hp)), mh: P.maxHp, al: P.alive ? 1 : 0, k: P.kills, d: P.deaths,
   });
 }
@@ -1133,8 +1335,15 @@ function drawHUD(dt) {
   $('armorFill').classList.toggle('low', P.hp / P.maxHp < 0.3);
   $('enFill').style.width = P.energy + '%';
   $('enFill').classList.toggle('hot', P.overheat);
+  const ws = loadoutStats(settings.loadout);
+  $('mainName').textContent = ws.main.name;
   $('ammoTxt').textContent = P.reloadT > 0 ? 'RELOAD' : P.ammo;
-  $('mslTxt').textContent = '▮'.repeat(P.msl) + '▯'.repeat(MSL_MAX - P.msl);
+  $('sideName').textContent = ws.side.count ? ws.side.name : '';
+  $('mslTxt').textContent = ws.side.count ? (ws.side.count <= 4 ? '▮'.repeat(P.msl) + '▯'.repeat(ws.side.count - P.msl) : P.msl + '/' + ws.side.count) : '';
+  $('meleeTxt').textContent = P.meleeCd > 0 ? '…' : 'READY';
+  $('meleeName').textContent = ws.melee.name;
+  $('bMelee').style.setProperty('--cd', clamp(P.meleeCd / ws.melee.cd, 0, 1));
+  $('bMsl').textContent = ws.side.count ? (ws.side.shell ? 'CNN' : 'MSL') : '—';
   $('modeTxt').textContent = P.mode === 'air' ? (P.boosting ? 'FLIGHT · BOOST' : 'FLIGHT') : (P.sprinting ? 'SKATE · BOOST' : 'HOVER');
   $('reticle').classList.toggle('locked', P.locked);
   dmgFlash = Math.max(0, dmgFlash - dt * 1.5);
@@ -1147,7 +1356,8 @@ function drawHUD(dt) {
     const blips = [];
     for (const t of liveTargets()) blips.push({ dx: t.center.x - P.pos.x, dz: t.center.z - P.pos.z, c: t.kind === 'remote' || t.kind === 'ai' ? '#ff5a5a' : '#ffd36a', air: t.kind === 'drone' || t.air || (t.mode === 'air') });
     cockpit.draw({ yaw: facingYaw(), blips, hp: P.hp, maxHp: P.maxHp, energy: P.energy, overheat: P.overheat, mode: P.mode === 'air' ? 'FLIGHT' : 'HOVER', alt: P.pos.y - EYE,
-      ammo: P.ammo, reloading: P.reloadT > 0, msl: P.msl, mslMax: MSL_MAX, locked: P.locked, frame: FRAMES[settings.frame].name });
+      ammo: P.ammo, reloading: P.reloadT > 0, msl: P.msl, mslMax: ws.side.count, locked: P.locked, frame: FRAMES[settings.frame].name,
+      mainName: ws.main.name, sideName: ws.side.name, meleeName: ws.melee.name, meleeReady: P.meleeCd <= 0 });
   }
   if ((scoreT -= dt) <= 0) {
     scoreT = 0.5;
@@ -1169,7 +1379,7 @@ function buildFramePicker() {
     const b = document.createElement('button');
     b.className = 'frame' + (settings.frame === k ? ' sel' : '');
     b.innerHTML = `<i style="background:#${F.main.toString(16).padStart(6, '0')}"></i><b>${F.name}</b><small>${F.desc}</small>`;
-    b.onclick = () => { settings.frame = k; saveSettings(); buildFramePicker(); updatePreview(); };
+    b.onclick = () => { setLoadout({ frame: k }); buildFramePicker(); };
     wrap.appendChild(b);
   }
 }
@@ -1184,14 +1394,14 @@ function showMenu(paused) {
 }
 function pause() { if (state === 'playing') showMenu(true); }
 function applyFrameStats() {
-  const F = FRAMES[settings.frame];
-  P.maxHp = F.hp;
+  P.maxHp = W().hp;
   P.hp = Math.min(P.hp, P.maxHp);
 }
 function begin() {
   sfx.start();
   applyFrameStats();
   rebuildOwnMech();
+  P.tpT = 0; P.tpCd = 0;
   respawn();
   P.kills = 0; P.deaths = 0;
   for (const t of targets) { t.alive = true; t.hp = t.maxHp; }
@@ -1199,8 +1409,8 @@ function begin() {
   resume();
   if (mode === 'training') {
     const tips = isTouch
-      ? ['LEFT THUMB: MOVE · RIGHT: LOOK', 'PUSH STICK TO EDGE OR TAP BOOST TO SKATE-SPRINT', 'HOLD RISE TO FLY — LOOK ANYWHERE', 'QB = INSTANT DASH · MSL = HOMING MISSILE']
-      : ['WASD MOVE · MOUSE LOOK', 'HOLD SHIFT TO SKATE-SPRINT', 'HOLD SPACE TO FLY — LOOK ANYWHERE', 'Q = QUICK BOOST · E / RMB = MISSILE'];
+      ? ['LEFT THUMB: MOVE · RIGHT: LOOK', 'PUSH STICK TO EDGE OR TAP BOOST TO SKATE-SPRINT', 'HOLD RISE TO FLY — LOOK ANYWHERE', 'QB = INSTANT DASH · ⚔ = CLOSE-RANGE LUNGE', '👁 = THIRD PERSON FOR 10s']
+      : ['WASD MOVE · MOUSE LOOK', 'HOLD SHIFT TO SKATE-SPRINT', 'HOLD SPACE TO FLY — LOOK ANYWHERE', 'Q = QUICK BOOST · E / RMB = SIDE WEAPON', 'F / MIDDLE CLICK = CLOSE-RANGE LUNGE · V = 3RD PERSON 10s'];
     tips.forEach((t, i) => setTimeout(() => state === 'playing' && showMsg(t, 2.6), 400 + i * 3000));
   }
 }
@@ -1217,7 +1427,7 @@ function resume() {
 $('btnTrain').onclick = () => { net?.close(); net = null; mode = 'training'; begin(); };
 $('btnHost').onclick = () => startPvP(true);
 $('btnJoin').onclick = () => startPvP(false);
-$('btnResume').onclick = () => { applyFrameStats(); if (ownMech?.userData.rig.frame !== settings.frame) rebuildOwnMech(); resume(); };
+$('btnResume').onclick = () => { applyFrameStats(); if (ownMech?.userData.rig.sig !== loadoutSig(settings.loadout)) rebuildOwnMech(); resume(); };
 $('btnLeave').onclick = () => { if (mode === 'pvp') leaveMatch(); else showMenu(false); };
 $('pilotName').value = settings.name;
 $('pilotName').oninput = e => { settings.name = e.target.value.slice(0, 16).toUpperCase(); saveSettings(); };
@@ -1225,20 +1435,71 @@ $('roomCode').oninput = e => { e.target.value = e.target.value.toUpperCase(); };
 $('sens').value = settings.sens; $('sens').oninput = e => { settings.sens = +e.target.value; saveSettings(); };
 $('invert').checked = settings.invert; $('invert').onchange = e => { settings.invert = e.target.checked; saveSettings(); };
 $('autoLevel').checked = settings.autoLevel; $('autoLevel').onchange = e => { settings.autoLevel = e.target.checked; saveSettings(); };
-$('viewSel').value = settings.view; $('viewSel').onchange = e => { settings.view = e.target.value; saveSettings(); };
 $('aim').value = settings.aim; $('aim').oninput = e => { settings.aim = +e.target.value; saveSettings(); };
 $('spar').checked = settings.spar; $('spar').onchange = e => { settings.spar = e.target.checked; saveSettings(); };
 $('controlsHelp').innerHTML = isTouch
-  ? 'Left thumb: move (push to the edge to skate-sprint) · Right thumb: look · FIRE can be dragged to aim · RISE to fly · While boosting you fly where you look: look down to dive · 👁 switches cockpit / 3rd-person'
-  : 'WASD move · Mouse look · Shift skate-sprint / air boost · Space rise / fly · Ctrl or C dive · V cockpit / 3rd-person · Q quick boost · LMB fire · E / RMB missile · R reset · M mute';
+  ? 'Left thumb: move (push to the edge to skate-sprint) · Right thumb: look · FIRE can be dragged to aim · RISE to fly · While boosting you fly where you look: look down to dive · ⚔ close-range lunge · 👁 third person for 10s (10s cooldown)'
+  : 'WASD move · Mouse look · Shift skate-sprint / air boost · Space rise / fly · Ctrl or C dive · V third person (10s, 10s cooldown) · Q quick boost · LMB fire · E / RMB side weapon · F / MMB close-range · R reset · M mute';
 buildFramePicker();
+
+const HANGAR = [
+  ['FRAME', 'frame', FRAMES], ['HEAD', 'head', HEADS], ['ARMS', 'arms', ARMS], ['HANDS', 'hands', HANDS],
+  ['MAIN WEAPON', 'main', MAIN], ['SIDE WEAPON', 'side', SIDE], ['CLOSE RANGE', 'melee', MELEE],
+];
+const hex = c => '#' + c.toString(16).padStart(6, '0');
+function buildHangar() {
+  const lo = settings.loadout, body = $('hangarBody');
+  body.innerHTML = '';
+  for (const [title, key, table] of HANGAR) {
+    const sec = document.createElement('div'); sec.className = 'sec';
+    sec.innerHTML = `<h3>${title}</h3>`;
+    const row = document.createElement('div'); row.className = 'opts';
+    const locked = key === 'melee' && lo.hands === 'blades';
+    for (const [k, o] of Object.entries(table)) {
+      if (key === 'melee' && k === 'blades') continue;
+      const b = document.createElement('button');
+      b.className = 'opt' + (lo[key] === k && !locked ? ' sel' : '');
+      b.disabled = locked;
+      b.innerHTML = `<b>${o.name}</b><small>${o.desc || ''}</small>`;
+      b.onclick = () => { setLoadout({ [key]: k }); if (key === 'melee' || key === 'hands' || key === 'arms') { preview.swingT = 0; preview.demoT = 3.5; } buildHangar(); };
+      row.appendChild(b);
+    }
+    sec.appendChild(row);
+    if (locked) sec.insertAdjacentHTML('beforeend', '<p class="note">Blade hands use their built-in ARM BLADES.</p>');
+    body.appendChild(sec);
+  }
+  for (const [title, key, list] of [['MAIN COLOR', 'color', COLORS], ['ACCENT COLOR', 'accent', ACCENTS], ['EYE COLOR', 'eye', EYES]]) {
+    const sec = document.createElement('div'); sec.className = 'sec';
+    sec.innerHTML = `<h3>${title}</h3>`;
+    const row = document.createElement('div'); row.className = 'swatches';
+    const def = document.createElement('button');
+    def.className = 'sw def' + (lo[key] == null ? ' sel' : ''); def.textContent = 'AUTO';
+    def.onclick = () => { setLoadout({ [key]: null }); buildHangar(); };
+    row.appendChild(def);
+    for (const c of list) {
+      const b = document.createElement('button');
+      b.className = 'sw' + (lo[key] === c ? ' sel' : '');
+      b.style.background = hex(c);
+      b.onclick = () => { setLoadout({ [key]: c }); buildHangar(); };
+      row.appendChild(b);
+    }
+    sec.appendChild(row);
+    body.appendChild(sec);
+  }
+  const st = loadoutStats(lo);
+  const dps = Math.round(st.main.dmg * (st.main.pellets || 1) / st.main.rate * (st.four ? 1.6 : 1));
+  $('hangarStats').innerHTML = `<span>ARMOR <b>${st.hp}</b></span><span>SPEED <b>${Math.round(st.speed * 100)}%</b></span><span>MAIN DPS <b>${dps}</b></span><span>SIDE <b>${st.side.count ? st.side.dmg + '×' + st.side.count : '—'}</b></span><span>MELEE <b>${st.melee.dmg}${st.four ? '+' + Math.round(st.melee.dmg * 0.5) : ''}</b></span>`;
+}
+$('btnHangar').onclick = () => { $('menu').classList.add('hangar'); buildHangar(); };
+$('hangarDone').onclick = () => { $('menu').classList.remove('hangar'); buildFramePicker(); };
+$('hangarReset').onclick = () => { setLoadout(defaultLoadout(settings.loadout.frame)); buildHangar(); };
 if (new URLSearchParams(location.search).get('room')) $('roomCode').value = new URLSearchParams(location.search).get('room').toUpperCase().slice(0, 4);
 
 // Spinning mech preview behind the menu
-const preview = { obj: null };
+const preview = { obj: null, swingT: 1, demoT: 0 };
 function updatePreview() {
   if (preview.obj) scene.remove(preview.obj);
-  preview.obj = buildMech(settings.frame);
+  preview.obj = buildMech(settings.loadout);
   preview.obj.position.set(0, 0, 470);
   scene.add(preview.obj);
 }
@@ -1255,6 +1516,8 @@ function frame() {
     preview.obj.visible = false;
     readInput(dt);
     applyLook(dt);
+    tickView(dt);
+    updateMelee(dt);
     updatePlayer(dt, time);
     updateWeapons(dt);
     updateCamera(dt, time);
@@ -1266,7 +1529,9 @@ function frame() {
     if (state === 'menu') {
       const a = time * 0.25;
       preview.obj.rotation.y = 0;
-      animateMech(preview.obj.userData.rig, { fwd: 0, side: 0, up: 0, speed: 0, air: false, phase: time, boost: false, dt, aimPitch: 0 });
+if ($('menu').classList.contains('hangar') && (preview.demoT -= dt) <= 0) { preview.demoT = 3.5; preview.swingT = 0; }
+      preview.swingT = Math.min(1, preview.swingT + dt / 0.5);
+      animateMech(preview.obj.userData.rig, { fwd: 0, side: 0, up: 0, speed: 0, air: false, phase: time, boost: false, dt, aimPitch: 0, swing: { t: preview.swingT, arm: Math.floor(time / 3.5) } });
       camera.position.set(Math.sin(a) * 26, 9 + Math.sin(time * 0.3) * 2, 470 + Math.cos(a) * 26);
       camera.lookAt(0, 7, 470);
       camera.rotateY(innerWidth > innerHeight ? 0.42 : 0);
@@ -1281,6 +1546,8 @@ function frame() {
   updateRemotes(dt);
   updateEnemyShots(dt);
   updateMissiles(dt);
+  updateShells(dt);
+  updateSlashes(dt);
   particles.update(dt);
   tracers.update(dt);
   flashes.update(dt);
@@ -1290,4 +1557,4 @@ function frame() {
 }
 frame();
 
-window.__hover = { P, input, settings, T, targets, remotes, get state() { return state; } };
+window.__hover = { P, input, settings, T, targets, remotes, W, setLoadout, buildMech, scene, get state() { return state; } };

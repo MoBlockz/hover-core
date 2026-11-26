@@ -26,7 +26,8 @@
     <div id="bars">
       <div class="bar"><label>AP</label><div><i id="armorFill"></i></div></div>
       <div class="bar"><label>EN</label><div><i id="enFill"></i></div></div>
-      <div class="wpn"><span>RIFLE <b id="ammoTxt">60</b></span><span>MSL <b id="mslTxt"></b></span></div>
+      <div class="wpn"><span><i id="mainName">RIFLE</i> <b id="ammoTxt">60</b></span><span><i id="sideName">MSL</i> <b id="mslTxt"></b></span></div>
+      <div class="wpn"><span>⚔ <i id="meleeName">SABER</i> <b id="meleeTxt">READY</b></span></div>
     </div>
     <div id="msg"></div>
     <div id="dead"><b>SYSTEM DOWN</b><small>Rebooting frame…</small></div>
@@ -38,6 +39,7 @@
       <button id="bRise" class="tb">RISE</button>
       <button id="bDive" class="tb">DIVE</button>
       <button id="bQB" class="tb">QB</button>
+      <button id="bMelee" class="tb">⚔</button>
       <button id="bMsl" class="tb">MSL</button>
       <button id="bFire" class="tb">FIRE</button>
     </div>
@@ -49,6 +51,7 @@
       <p class="sub">HIGH-VELOCITY COCKPIT MECH COMBAT</p>
       <div class="row"><input id="pilotName" maxlength="16" placeholder="PILOT CALLSIGN" autocomplete="off"></div>
       <div id="frames"></div>
+      <button id="btnHangar" class="menuOnly hangarBtn">⚙ HANGAR · CUSTOMIZE MECH</button>
       <div class="play">
         <button id="btnResume" class="big pausedOnly">RESUME</button>
         <button id="btnLeave" class="pausedOnly">LEAVE MATCH</button>
@@ -63,13 +66,17 @@
       <details>
         <summary>SETTINGS &amp; CONTROLS</summary>
         <label>Look sensitivity <input id="sens" type="range" min="0.3" max="2.5" step="0.05"></label>
-        <label>Camera <select id="viewSel"><option value="cockpit">Cockpit (1st person)</option><option value="third">Third person</option></select></label>
         <label>Auto-aim <input id="aim" type="range" min="0" max="2" step="0.1"></label>
         <label><input id="invert" type="checkbox"> Invert look Y</label>
         <label><input id="autoLevel" type="checkbox"> Auto-level horizon in flight</label>
         <label><input id="spar" type="checkbox"> Sparring AI in training</label>
         <p id="controlsHelp"></p>
       </details>
+    </div>
+    <div id="hangar">
+      <div class="hhead"><h2>HANGAR</h2><button id="hangarReset">RESET</button><button id="hangarDone" class="done">DONE</button></div>
+      <div id="hangarStats"></div>
+      <div id="hangarBody"></div>
     </div>
     <div id="rotate">Rotate your device to landscape for the best cockpit view</div>
   </div>

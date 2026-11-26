@@ -162,13 +162,17 @@ export class Cockpit {
       const { g, c } = this.weapons, W = c.width, Hh = c.height;
       g.fillStyle = '#100c07'; g.fillRect(0, 0, W, Hh);
       g.font = 'bold 20px monospace'; g.fillStyle = '#ffcf8a';
-      g.fillText('R: 90mm RIFLE', 10, 26);
-      g.font = 'bold 34px monospace';
-      g.fillText(data.reloading ? 'RELOAD' : String(data.ammo).padStart(2, '0'), 10, 66);
-      g.font = 'bold 20px monospace'; g.fillText('L: MISSILES', 10, 98);
-      for (let i = 0; i < data.mslMax; i++) { g.fillStyle = i < data.msl ? '#ffb02e' : '#3a2a14'; g.fillRect(150 + i * 24, 82, 18, 18); }
+      g.font = 'bold 17px monospace';
+      g.fillText(data.mainName || 'RIFLE', 10, 22);
+      g.font = 'bold 30px monospace';
+      g.fillText(data.reloading ? 'RELOAD' : String(data.ammo).padStart(2, '0'), 10, 54);
+      g.font = 'bold 17px monospace';
+      g.fillText(data.mslMax ? data.sideName : 'NO SIDE WEAPON', 10, 80);
+      if (data.mslMax) g.fillText(data.msl + '/' + data.mslMax, 190, 80);
+      g.fillStyle = data.meleeReady ? '#ff9ad0' : '#6b4058';
+      g.fillText('⚔ ' + (data.meleeName || ''), 10, 104);
       g.fillStyle = data.locked ? '#ff4a4a' : '#6b5a40';
-      g.fillText(data.locked ? '◆ LOCK' : '◇ NO LOCK', 10, 128);
+      g.fillText(data.locked ? '◆ LOCK' : '◇ NO LOCK', 10, 126);
       this.weapons.tex.needsUpdate = true;
     }
   }

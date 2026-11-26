@@ -113,3 +113,36 @@ details input[type=range] { flex: 1; }
   .play button { padding: 9px; } .play button.big { padding: 11px; }
   #readL, #readR { font-size: 20px; }
 }
+
+/* Melee button with cooldown fill */
+#bMelee { right: calc(212px + env(safe-area-inset-right)); bottom: 58px; width: 62px; height: 62px; font-size: 22px; border-color: #ff6ab0; color: #ffd0e6;
+  background: linear-gradient(to top, #0a2030a0 calc((1 - var(--cd, 0)) * 100%), #40102aa0 0); }
+.wpn i { font-style: normal; color: #ffcf8a99; }
+#viewBtn.active { background: #3fb6e0d0; color: #001018; }
+#viewBtn.cool { color: #ff9a7a; font-size: 12px; }
+.hangarBtn { width: 100%; margin-bottom: 8px; background: #1a2f12; border: 1px solid #7fae55; color: #dfffc8; font: inherit; letter-spacing: 3px; padding: 11px; cursor: pointer; }
+
+/* Hangar */
+#hangar { display: none; width: min(500px, 58vw); max-height: 100%; overflow-y: auto; padding-right: 6px; }
+#menu.hangar .panel { display: none; }
+#menu.hangar #hangar { display: block; }
+#menu.hangar { align-items: flex-start; }
+.hhead { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; gap: 8px; background: #050b11f0; padding: 6px 0; }
+.hhead h2 { margin: 0 auto 0 0; letter-spacing: 6px; color: #ffb347; font-size: 22px; }
+.hhead button { background: #0e2a3a; border: 1px solid #3c87a2; color: #e6fbff; font: inherit; letter-spacing: 2px; padding: 8px 12px; cursor: pointer; }
+.hhead .done { background: linear-gradient(90deg, #ff9a3a, #ffb347); color: #1a0d00; border: 0; font-weight: 700; }
+#hangarStats { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 11px; color: #7fc3d6; margin: 4px 0 8px; }
+#hangarStats b { color: #e6fbff; }
+.sec h3 { margin: 10px 0 5px; font-size: 11px; letter-spacing: 3px; color: #6fb4c8; font-weight: 600; }
+.opts { display: grid; grid-template-columns: repeat(auto-fill, minmax(108px, 1fr)); gap: 5px; }
+.opt { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 7px; background: #0a1a26cc; border: 1px solid #2c5868; color: #cfefff; font: inherit; text-align: left; cursor: pointer; }
+.opt b { font-size: 11px; letter-spacing: 1px; }
+.opt small { font-size: 9px; color: #7fa9b8; line-height: 1.3; }
+.opt.sel { border-color: #ffb347; box-shadow: 0 0 0 1px #ffb347 inset; background: #2a1d0acc; }
+.opt:disabled { opacity: .35; }
+.note { font-size: 10px; color: #7fffd8; margin: 4px 0; }
+.swatches { display: flex; flex-wrap: wrap; gap: 6px; }
+.sw { width: 34px; height: 30px; border: 2px solid #0008; cursor: pointer; }
+.sw.def { width: auto; padding: 0 8px; background: #0a1a26; color: #9fc7d6; font: 10px inherit; font-family: inherit; border-color: #2c5868; }
+.sw.sel { border-color: #ffb347; box-shadow: 0 0 0 2px #ffb347; }
+#viewBtn { width: auto; min-width: 38px; padding: 0 6px; white-space: nowrap; font-size: 14px; }

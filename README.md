@@ -9,7 +9,9 @@ First-person cockpit mech combat for mobile and desktop browsers. You hover-skat
 - **Hover skating:** sprinting uses alternating left/right skate pushes with the view leaning into each stride. You carve turns with low friction, and skating tops out above 450 km/h.
 - **Free flight:** hold RISE to take off. In the air the view has no pitch limit, so you can loop, roll and look anywhere, and thrust follows where you look. Auto-level is optional.
 - **Look down to dive:** while boosting in the air you fly wherever you look. Look down to dive at the ground, and you land straight into a skate that keeps your speed.
-- **Cockpit or third person:** tap 👁 (or press V) to switch.
+- **Third person ability:** tap 👁 (or press V) for 10 seconds of third-person view, then it recharges for 10 seconds.
+- **Hangar customization:** choose your frame, head (mono-eye / horned / visor / V-crest), twin or **quad arms**, normal hands or **blade hands**, main weapon (assault rifle, gatling, shotgun, rail sniper, bazooka), side weapon (homing missiles, micro-missile swarm, shoulder cannon, none), close-range weapon (beam saber, heat axe, pile bunker), and main/accent/eye colors. Every part changes the model and the stats, and other players see your build in PvP.
+- **Close-range combat:** ⚔ (F / middle click) lunges at the nearest target in front of you and strikes. Quad arms add a second strike, and blade hands attack very fast.
 - **Auto-aim:** shots near a target bend onto it, and the view gently tracks targets while you move fast. Adjust it with the Auto-aim slider in Settings.
 - **Quick boost:** an instant dash in any direction for dodging.
 - **Weapons:** a rifle with light aim assist, plus homing missiles that lock onto the target closest to your reticle.
@@ -27,8 +29,9 @@ First-person cockpit mech combat for mobile and desktop browsers. You hover-skat
 | Dive | DIVE | Ctrl / C |
 | Quick boost | QB | Q |
 | Fire rifle | FIRE | Left click |
-| Missile | MSL | E / right click |
-| Switch camera | 👁 | V |
+| Side weapon | MSL | E / right click |
+| Close-range lunge | ⚔ | F / middle click |
+| Third person (10s) | 👁 | V |
 | Pause | ❚❚ | Esc |
 
 ## Run locally
@@ -40,7 +43,8 @@ or `python -m http.server`, then open `http://localhost:3000` (or `:8000`).
 
 ## Code
 - `src/main.js`: game loop, movement and flight physics, weapons, AI, PvP sync, HUD, input
-- `src/mech.js`: procedural low-poly mech builder and skating/flight animation
+- `src/loadout.js`: parts, weapons and stats for customization
+- `src/mech.js`: modular low-poly mech builder and skating/flight/melee animation
 - `src/cockpit.js`: cockpit geometry and canvas dashboard screens
 - `src/arena.js`: seeded arena layout (identical for every PvP client) and collisions
 - `src/net.js`: PeerJS host-relay networking
