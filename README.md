@@ -1,17 +1,45 @@
-# VECTOR — Hover Core
+# HOVER CORE
 
-Mobile browser mech combat prototype with original procedural low-poly mechs inspired by the supplied references. Training arena, cockpit overlay, momentum skating, boost, vertical flight, mouse/touch aiming and hitscan weapons.
+First-person cockpit mech combat for mobile and desktop browsers. You hover-skate across the ground, take off into free 360° flight, and fight in a training arena or in peer-to-peer PvP.
 
-## Play
+**Play:** https://ty-robb.github.io/hover-core/ (open it on your phone and turn it to landscape)
 
-Install Node.js 20 or newer, run `npm install`, then `npm start`. Open http://localhost:3000. On phones, use the host computer's LAN IP and port 3000 on the same Wi-Fi. Internet hosting needs HTTPS and WebSocket support. Three.js loads from a CDN, so internet access is required.
+## Features
+- **Cockpit view:** a 3D canopy frame and dashboard, with a live radar, armor/generator readout and weapons screen. The cockpit sways with acceleration.
+- **Hover skating:** sprinting uses alternating left/right skate pushes with the view leaning into each stride. You carve turns with low friction, and skating tops out above 450 km/h.
+- **Free flight:** hold RISE to take off. In the air the view has no pitch limit, so you can loop, roll and look anywhere, and thrust follows where you look. Auto-level is optional.
+- **Quick boost:** an instant dash in any direction for dodging.
+- **Weapons:** a rifle with light aim assist, plus homing missiles that lock onto the target closest to your reticle.
+- **Three low-poly frames:** STRIDER (olive, balanced), WRAITH (purple, fast) and BASTION (gunmetal, heavy).
+- **Training arena:** static and sliding target mechs, flying drones, and a sparring AI that skates, flies, dodges and shoots back.
+- **PvP:** host a room, share the 4-letter code, and up to 8 pilots can join. Players connect directly to each other over WebRTC (PeerJS), so no game server is needed.
 
-Desktop: WASD move, mouse aim, Shift boost, Space rise, Ctrl dive, click fire, R reset. Mobile: left joystick, drag the arena to aim, right action buttons.
+## Controls
+| Action | Touch | Keyboard / mouse |
+|---|---|---|
+| Move | Left thumb (floating stick) | WASD |
+| Look | Drag right side (or drag FIRE) | Mouse |
+| Skate-sprint / air boost | Push stick to edge, or BOOST toggle | Shift |
+| Rise / take off | RISE | Space |
+| Dive | DIVE | Ctrl / C |
+| Quick boost | QB | Q |
+| Fire rifle | FIRE | Left click |
+| Missile | MSL | E / right click |
+| Pause | ❚❚ | Esc |
 
-## PvP
+## Run locally
+It's a static site with no build step. Serve the folder with any static server, for example:
+```
+npx serve .
+```
+or `python -m http.server`, then open `http://localhost:3000` (or `:8000`).
 
-Two devices running against the same server join the same room code. Players synchronize at 20 Hz and can shoot each other; four hits reset armor and position. Training targets remain available. This is a prototype: hit claims and movement are client trusted, without matchmaking, accounts, anti-cheat or production authoritative simulation. Do not deploy as competitive ranked multiplayer.
+## Code
+- `src/main.js`: game loop, movement and flight physics, weapons, AI, PvP sync, HUD, input
+- `src/mech.js`: procedural low-poly mech builder and skating/flight animation
+- `src/cockpit.js`: cockpit geometry and canvas dashboard screens
+- `src/arena.js`: seeded arena layout (identical for every PvP client) and collisions
+- `src/net.js`: PeerJS host-relay networking
+- `src/fx.js`, `src/audio.js`: particles, tracers, speed lines, synthesized sound
 
-## Status
-
-Source implementation only; browser and multiplayer runtime verification are still required. This is a web game, not a packaged Android/iOS app. No third-party franchise assets are included.
+PvP is client-authoritative (the shooter reports its hits), which is fine for friends but not cheat-proof.

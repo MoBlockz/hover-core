@@ -1,1 +1,78 @@
-<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no"><title>VECTOR // Hover Core</title><link rel="stylesheet" href="style.css"></head><body><div id="hud"><b>VECTOR <small>// COMBAT SYSTEMS</small></b><span id="status">TRAINING • SYSTEM READY</span><div id="stats"></div></div><div id="reticle">＋</div><div id="cockpit"></div><div id="panel"><h1>VECTOR</h1><p>HIGH VELOCITY MECH COMBAT</p><p>Skate the ground. Own the sky.</p><button id="start">DEPLOY TO TRAINING</button><p>WASD move · mouse look · Shift boost · Space ascend<br>Ctrl descend · click fire · R reset</p><input id="room" placeholder="PvP room code" maxlength="32"><button id="join">JOIN PvP</button><p id="notice">Touch: left pad move · drag right to look</p></div><div id="pad"><i></i></div><div id="actions"><button id="boost">BOOST</button><button id="up">RISE</button><button id="down">DIVE</button><button id="fire">FIRE</button></div><script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js"}}</script><script type="module" src="game.js"></script></body></html>
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="theme-color" content="#0b141d">
+  <title>HOVER CORE — Mech Combat</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="game"></div>
+  <canvas id="hudCanvas"></canvas>
+
+  <div id="hud" class="hidden">
+    <div id="boostFx"></div>
+    <div id="dmgFlash"></div>
+    <div id="topbar"><span id="modeTag">TRAINING ARENA</span><span id="modeTxt">HOVER</span></div>
+    <div id="feed"></div>
+    <div id="scores"></div>
+    <div id="reticle"><i></i><i></i><i></i><i></i><b></b></div>
+    <div id="readL"><small>SPD km/h</small><span id="spd">0</span></div>
+    <div id="readR"><small>ALT m</small><span id="alt">0</span></div>
+    <div id="bars">
+      <div class="bar"><label>AP</label><div><i id="armorFill"></i></div></div>
+      <div class="bar"><label>EN</label><div><i id="enFill"></i></div></div>
+      <div class="wpn"><span>RIFLE <b id="ammoTxt">60</b></span><span>MSL <b id="mslTxt"></b></span></div>
+    </div>
+    <div id="msg"></div>
+    <div id="dead"><b>SYSTEM DOWN</b><small>Rebooting frame…</small></div>
+    <button id="pauseBtn" aria-label="Pause">❚❚</button>
+    <div id="touch">
+      <div id="stickBase"><div id="stickKnob"></div></div>
+      <button id="bBoost" class="tb">BOOST</button>
+      <button id="bRise" class="tb">RISE</button>
+      <button id="bDive" class="tb">DIVE</button>
+      <button id="bQB" class="tb">QB</button>
+      <button id="bMsl" class="tb">MSL</button>
+      <button id="bFire" class="tb">FIRE</button>
+    </div>
+  </div>
+
+  <div id="menu">
+    <div class="panel">
+      <h1>HOVER<span>CORE</span></h1>
+      <p class="sub">HIGH-VELOCITY COCKPIT MECH COMBAT</p>
+      <div class="row"><input id="pilotName" maxlength="16" placeholder="PILOT CALLSIGN" autocomplete="off"></div>
+      <div id="frames"></div>
+      <div class="play">
+        <button id="btnResume" class="big pausedOnly">RESUME</button>
+        <button id="btnLeave" class="pausedOnly">LEAVE MATCH</button>
+        <button id="btnTrain" class="big menuOnly">TRAINING ARENA</button>
+        <div class="pvp menuOnly">
+          <button id="btnHost">HOST PvP ROOM</button>
+          <input id="roomCode" maxlength="4" placeholder="CODE" autocomplete="off">
+          <button id="btnJoin">JOIN</button>
+        </div>
+      </div>
+      <p id="notice"></p>
+      <details>
+        <summary>SETTINGS &amp; CONTROLS</summary>
+        <label>Look sensitivity <input id="sens" type="range" min="0.3" max="2.5" step="0.05"></label>
+        <label><input id="invert" type="checkbox"> Invert look Y</label>
+        <label><input id="autoLevel" type="checkbox"> Auto-level horizon in flight</label>
+        <label><input id="spar" type="checkbox"> Sparring AI in training</label>
+        <p id="controlsHelp"></p>
+      </details>
+    </div>
+    <div id="rotate">Rotate your device to landscape for the best cockpit view</div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js"></script>
+  <script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js"}}</script>
+  <script type="module" src="src/main.js"></script>
+</body>
+</html>
