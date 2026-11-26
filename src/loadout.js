@@ -57,7 +57,7 @@ export const MAIN = {
   rifle:   { name: 'ASSAULT RIFLE', desc: 'All-rounder, no auto-aim', dmg: 4, rate: 0.095, noAssist: true, mag: 60, reserve: 180, reload: 1.8, spread: 0.012, pellets: 1, range: 900, color: 0xffc37a, width: 1.3, speed: 1 },
   gatling: { name: 'GATLING', desc: 'Huge mag, low damage', dmg: 2.2, rate: 0.045, mag: 180, reserve: 360, reload: 3.2, spread: 0.028, pellets: 1, range: 700, color: 0xffe08a, width: 1, speed: 0.96 },
   shotgun: { name: 'SHOTGUN', desc: 'Deadly up close', dmg: 3.1, rate: 0.6, mag: 8, reserve: 24, reload: 2.4, spread: 0.075, pellets: 9, range: 260, color: 0xffb070, width: 0.9, speed: 1 },
-  sniper:  { name: 'RAIL SNIPER', desc: 'Slow, huge damage', dmg: 26, rate: 1.1, mag: 5, reserve: 15, reload: 2.6, spread: 0, pellets: 1, range: 1500, color: 0x8fe8ff, width: 3, speed: 0.98 },
+  sniper:  { name: 'RAIL SNIPER', desc: 'Slow, heavy hits', dmg: 18, rate: 1.4, mag: 5, reserve: 15, reload: 2.6, spread: 0, pellets: 1, range: 1500, color: 0x8fe8ff, width: 3, speed: 0.98 },
   megacannon: { name: 'MEGA CANNONS', desc: 'Giant twin arm cannons', dmg: 17, rate: 0.5, mag: 24, reserve: 72, reload: 3.5, splash: 20, shell: true, shellSpeed: 280, color: 0xff8a3a, speed: 1, hidden: true },
   bazooka: { name: 'BAZOOKA', desc: 'Explosive shells', dmg: 22, rate: 1.3, mag: 4, reserve: 8, reload: 3, splash: 14, shell: true, shellSpeed: 240, color: 0xffa040, speed: 0.95 },
 };

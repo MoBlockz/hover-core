@@ -38,7 +38,7 @@ function setLoadout(patch) {
   saveSettings();
   updatePreview();
 }
-const TP_TIME = 10, TP_COOLDOWN = 10;
+const TP_TIME = 10, TP_COOLDOWN = 0, LOCK_COOLDOWN = 7;
 
 // ---------- Renderer / scene ----------
 const renderer = new THREE.WebGLRenderer({ antialias: !isTouch, powerPreference: 'high-performance' });
@@ -230,7 +230,7 @@ function toggleView() {
 function tickView(dt) {
   if (P.tpT > 0) {
     P.tpT -= dt;
-    if (P.tpT <= 0) { P.tpT = 0; P.tpCd = TP_COOLDOWN; showMsg('COCKPIT VIEW · 3RD-PERSON RECHARGING', 1.4); }
+    if (P.tpT <= 0) { P.tpT = 0; P.tpCd = TP_COOLDOWN; showMsg('COCKPIT VIEW', 1); }
   } else if (P.tpCd > 0) {
     P.tpCd -= dt;
     if (P.tpCd <= 0) { P.tpCd = 0; showMsg('3RD-PERSON READY', 1, 'good'); }
@@ -713,7 +713,11 @@ function updateMissiles(dt) {
     let boom = s.life <= 0 || pointInArena(arena.colliders, s.m.position);
     if (!boom && tgtPos && s.m.position.distanceTo(tgtPos) < 6) {
       boom = true;
-      if (!s.cosmetic && s.target !== 'me') damageTarget(s.target, s.dmg, s.m.position);
+      if (!s.cosmetic && s.target !== 'me') {
+        damageTarget(s.target, s.dmg, s.m.position);
+        // A lock-on hit shuts the lock system off for a while
+        if (s.owner === 'me' && s.target) { P.lockCd = LOCK_COOLDOWN; P.lock = null; P.locked = false; }
+      }
     }
     if (boom) { explode(s.m.position.clone(), 0.6 * s.size); scene.remove(s.m); missiles.splice(i, 1); }
   }
@@ -787,7 +791,9 @@ function updateWeapons(dt) {
   }
   const cone = (isTouch ? 0.11 : 0.07) * settings.aim; // ~6 deg touch / 4 deg mouse at default
   if (!M.noAssist) aimMagnet(dt, f, ao, cand, ca, cone * 2.2);
-  if (cand && cand === P.lock) P.lockT += dt; else { P.lock = cand; P.lockT = 0; }
+  P.lockCd = Math.max(0, (P.lockCd || 0) - dt);
+  const lockCand = P.lockCd > 0 ? null : cand;
+  if (lockCand && lockCand === P.lock) P.lockT += dt; else { P.lock = lockCand; P.lockT = 0; }
   const wasLocked = P.locked;
   P.locked = !!P.lock && P.lockT > 0.45;
   if (P.locked && !wasLocked) sfx.lock();
@@ -1377,6 +1383,11 @@ function drawHUD(dt) {
     if ((d.t -= dt) <= 0) { dmgDirs.splice(i, 1); continue; }
     hg.strokeStyle = `rgba(255,60,60,${d.t})`; hg.lineWidth = 6;
     hg.beginPath(); hg.arc(W / 2, H / 2, Math.min(W, H) * 0.22, d.ang - Math.PI / 2 - 0.25, d.ang - Math.PI / 2 + 0.25); hg.stroke();
+  }
+  // Lock-on recharge readout
+  if (P.lockCd > 0) {
+    hg.font = '600 12px "Share Tech Mono", monospace'; hg.textAlign = 'center'; hg.fillStyle = '#ff9a7a';
+    hg.fillText(`LOCK-ON RECHARGING ${Math.ceil(P.lockCd)}s`, W / 2, H / 2 - 36);
   }
   // Hit marker
   if (hitMarkT > 0) {
