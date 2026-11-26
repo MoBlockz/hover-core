@@ -2,7 +2,7 @@
 
 First-person cockpit mech combat for mobile and desktop browsers. You hover-skate across the ground, take off into free 360° flight, and fight in a training arena or in peer-to-peer PvP.
 
-**Play:** https://ty-robb.github.io/hover-core/ (open it on your phone and turn it to landscape)
+**Play:** https://moblockz.github.io/hover-core/ (open it on your phone and turn it to landscape)
 
 ## Features
 - **Cockpit view:** a 3D canopy frame and dashboard, with a live radar, armor/generator readout and weapons screen. The cockpit sways with acceleration.
