@@ -102,7 +102,7 @@ const P = {
   fireCd: 0, ammo: 60, reloadT: 0, msl: 4, mslT: 0, lock: null, lockT: 0, locked: false,
   shake: 0, roll: 0, rollKick: 0, fovKick: 0, kills: 0, deaths: 0, lastShot: 0,
   shadow: makeShadow(10), sway: V(), prevVel: V(), invuln: 0,
-  meleeCd: 0, swingT: 1, swingArm: 0, lunge: null, extraHit: null, gunIdx: 0, tpT: 0, tpCd: 0,
+  reserve: 0, emptyT: 0, meleeCd: 0, swingT: 1, swingArm: 0, lunge: null, extraHit: null, gunIdx: 0, tpT: 0, tpCd: 0,
 };
 
 
@@ -389,6 +389,31 @@ Object.assign(ai, { pos: V(0, EYE + HOVER, -520), mode: 'ground', yaw: 0, stride
   orbitDir: 1, wantDist: 180, thinkT: 0, airT: 0, altTarget: 80, qbCd: 0, stuckT: 0 });
 targets.push(ai);
 
+// Ammo supply crates (refill reserve + side weapon). Each client has its own.
+const crates = [[0, 150], [0, -150], [150, 0], [-150, 0], [380, 380], [-380, -380], [380, -380], [-380, 380]].map(([x, z]) => {
+  const g = new THREE.Group();
+  g.add(new THREE.Mesh(new THREE.BoxGeometry(5, 4, 5), new THREE.MeshStandardMaterial({ color: 0x4d5a3a, flatShading: true })));
+  for (const y of [-1.2, 1.2]) { const st = new THREE.Mesh(new THREE.BoxGeometry(5.2, 0.4, 5.2), glow(0x6bff8a)); st.position.y = y; g.add(st); }
+  const y = groundAt(arena.colliders, x, z, 200, 0) + 3.5;
+  g.position.set(x, y, z);
+  scene.add(g);
+  return { g, x, y, z, respawnT: 0 };
+});
+function updateCrates(dt, time) {
+  for (const c of crates) {
+    if (c.respawnT > 0) { c.respawnT -= dt; c.g.visible = c.respawnT <= 0; continue; }
+    c.g.visible = true;
+    c.g.rotation.y += dt * 1.2; c.g.position.y = c.y + Math.sin(time * 2 + c.x) * 0.6;
+    if (state !== 'playing' || !P.alive) continue;
+    if (Math.hypot(P.pos.x - c.x, P.pos.z - c.z) < 10 && Math.abs(P.pos.y - EYE - c.y) < 12) {
+      const ws = W();
+      P.reserve = ws.main.reserve; P.ammo = ws.main.mag; P.reloadT = 0; P.msl = ws.side.count;
+      c.respawnT = 25; c.g.visible = false;
+      particles.burst(c.g.position, 30, 25, 0.6, 0x6bff8a);
+      sfx.lock(); showMsg('AMMO RESUPPLIED', 1.2, 'good');
+    }
+  }
+}
 function setTargetVisible(t, v) { t.obj.visible = v; if (t.shadow) t.shadow.visible = v; }
 
 function updateTargets(dt, time) {
@@ -745,7 +770,8 @@ function aimMagnet(dt, f, o, t, ang, cone) {
 function updateWeapons(dt) {
   const ws = W(), M = ws.main, S = ws.side;
   P.fireCd -= dt;
-  if (P.reloadT > 0 && (P.reloadT -= dt) <= 0) P.ammo = M.mag;
+  if (P.reloadT > 0 && (P.reloadT -= dt) <= 0) { const n = Math.min(M.mag - P.ammo, P.reserve); P.ammo += n; P.reserve -= n; }
+  if (input.fire && P.ammo <= 0 && P.reserve <= 0 && P.alive && (P.emptyT -= dt) <= 0) { P.emptyT = 1.5; sfx.beep(); showMsg('OUT OF AMMO · FIND A SUPPLY CRATE', 1.4, 'bad'); }
   if (P.msl < S.count && (P.mslT -= dt) <= 0) { P.msl++; P.mslT = S.regen; }
 
   // Lock-on: closest target to the reticle inside a cone
@@ -768,7 +794,8 @@ function updateWeapons(dt) {
   if (input.fire && P.fireCd <= 0 && P.reloadT <= 0 && P.ammo > 0) {
     // Quad arms dual-wield: faster fire, alternating guns
     P.fireCd = M.rate / (ws.four ? 1.6 : 1); P.ammo--; P.lastShot = performance.now();
-    if (P.ammo <= 0) P.reloadT = M.reload;
+    if (P.ammo <= 0 && P.reserve > 0) P.reloadT = M.reload;
+    else if (P.ammo <= 0) showMsg('OUT OF AMMO · FIND A SUPPLY CRATE', 1.6, 'bad');
     P.gunIdx = ws.four ? 1 - P.gunIdx : 0;
     const mz = muzzlePos(P.gunIdx);
     // Auto-aim: shots near a target bend onto it (helps hitting at Gundam speeds)
@@ -919,7 +946,7 @@ function respawn() {
   P.pos.set(sp.x, EYE + HOVER, sp.z); P.vel.set(0, 0, 0);
   P.yaw = sp.yaw; P.pitch = 0; P.mode = 'ground'; groundQuat(P.viewQ);
   P.hp = P.maxHp; P.energy = 100; P.overheat = false; P.alive = true;
-  P.ammo = W().main.mag; P.reloadT = 0; P.msl = W().side.count; P.invuln = 2; P.lunge = null;
+  P.ammo = W().main.mag; P.reserve = W().main.reserve; P.reloadT = 0; P.msl = W().side.count; P.invuln = 2; P.lunge = null;
   $('dead').classList.remove('show');
 }
 
@@ -989,8 +1016,8 @@ function updatePlayer(dt, time) {
     if (feet - g > 7) toAir();
     else P.vel.y += ((g + HOVER + Math.sin(time * 3) * 0.12 - feet) * 70 - P.vel.y * 12) * dt;
     // Jump / take off
-    if (input.riseHeld && P.mode === 'ground' && !P.overheat && P.energy > 8) {
-      P.vel.y = Math.max(P.vel.y, T.jumpVel); P.energy -= 6;
+    if (input.riseHeld && P.mode === 'ground' && !P.overheat && P.energy > 6) {
+      P.vel.y = Math.max(P.vel.y, T.jumpVel); P.energy -= 4;
       toAir(); sfx.jump(); dustRing(P.pos.x, feet, P.pos.z, 30);
       P.shake = Math.max(P.shake, 0.3);
     }
@@ -1015,7 +1042,9 @@ function updatePlayer(dt, time) {
     P.vel.multiplyScalar(Math.exp(-0.45 * dt));
     const max = (P.boosting ? T.airBoostMax : T.airMax) * fs, s = P.vel.length();
     if (s > max && !P.lunge) P.vel.multiplyScalar(Math.exp(-dt * 2.6 * (s - max) / max));
-    P.energy -= dt * (1.5 + (P.boosting ? 20 : 0) + (input.riseHeld ? 5 : 0));
+    // Cruising recharges the generator; boosting/climbing drains it slowly.
+    if (P.boosting || input.riseHeld) P.energy -= dt * (0.5 + (P.boosting ? 7 : 0) + (input.riseHeld ? 2.5 : 0));
+    else P.energy += dt * 4;
     P.phase += dt;
     if (P.boosting) {
       const back = forwardOf(P.q).multiplyScalar(-1);
@@ -1045,7 +1074,7 @@ function updatePlayer(dt, time) {
   // Generator
   if (P.energy <= 0 && !P.overheat) { P.overheat = true; sfx.warn(); showMsg('GENERATOR OVERHEAT', 1.5, 'bad'); }
   P.energy = clamp(P.energy, 0, 100);
-  if (P.overheat && P.energy >= 40) P.overheat = false;
+  if (P.overheat && P.energy >= 25) P.overheat = false;
 
   // Integrate with sub-steps for solid collisions at high speed
   const steps = Math.max(1, Math.ceil(P.vel.length() * dt / 2.5));
@@ -1305,6 +1334,20 @@ function drawHUD(dt) {
     }
     if (locked) { hg.fillStyle = '#ff4a4a'; hg.fillText('LOCK', s.x, s.y + size + 22); }
   }
+  // Supply crate markers (shown when running low)
+  if (P.reserve < loadoutStats(settings.loadout).main.mag) {
+    hg.font = '600 11px "Share Tech Mono", monospace'; hg.textAlign = 'center';
+    for (const c of crates) {
+      if (!c.g.visible) continue;
+      const cp = V(c.x, c.y, c.z), d = cp.clone().sub(P.pos);
+      if (d.dot(f) <= 0) continue;
+      const sc = project(cp);
+      if (!sc) continue;
+      hg.strokeStyle = hg.fillStyle = '#6bff8a'; hg.lineWidth = 1.5;
+      hg.beginPath(); hg.moveTo(sc.x, sc.y - 9); hg.lineTo(sc.x + 9, sc.y); hg.lineTo(sc.x, sc.y + 9); hg.lineTo(sc.x - 9, sc.y); hg.closePath(); hg.stroke();
+      hg.fillText(`AMMO ${Math.round(d.length())}m`, sc.x, sc.y - 14);
+    }
+  }
   // Velocity vector marker (where you're actually going)
   if (P.vel.length() > 15) {
     const s = project(P.pos.clone().addScaledVector(P.vel, 3));
@@ -1337,7 +1380,8 @@ function drawHUD(dt) {
   $('enFill').classList.toggle('hot', P.overheat);
   const ws = loadoutStats(settings.loadout);
   $('mainName').textContent = ws.main.name;
-  $('ammoTxt').textContent = P.reloadT > 0 ? 'RELOAD' : P.ammo;
+  $('ammoTxt').textContent = P.reloadT > 0 ? 'RELOAD' : P.ammo + '/' + P.reserve;
+  $('bFire').classList.toggle('empty', P.ammo <= 0 && P.reserve <= 0);
   $('sideName').textContent = ws.side.count ? ws.side.name : '';
   $('mslTxt').textContent = ws.side.count ? (ws.side.count <= 4 ? '▮'.repeat(P.msl) + '▯'.repeat(ws.side.count - P.msl) : P.msl + '/' + ws.side.count) : '';
   $('meleeTxt').textContent = P.meleeCd > 0 ? '…' : 'READY';
@@ -1354,6 +1398,7 @@ function drawHUD(dt) {
   if ((screenT -= dt) <= 0) {
     screenT = 0.1;
     const blips = [];
+    for (const c of crates) if (c.g.visible) blips.push({ dx: c.x - P.pos.x, dz: c.z - P.pos.z, c: '#6bff8a', air: false });
     for (const t of liveTargets()) blips.push({ dx: t.center.x - P.pos.x, dz: t.center.z - P.pos.z, c: t.kind === 'remote' || t.kind === 'ai' ? '#ff5a5a' : '#ffd36a', air: t.kind === 'drone' || t.air || (t.mode === 'air') });
     cockpit.draw({ yaw: facingYaw(), blips, hp: P.hp, maxHp: P.maxHp, energy: P.energy, overheat: P.overheat, mode: P.mode === 'air' ? 'FLIGHT' : 'HOVER', alt: P.pos.y - EYE,
       ammo: P.ammo, reloading: P.reloadT > 0, msl: P.msl, mslMax: ws.side.count, locked: P.locked, frame: FRAMES[settings.frame].name,
@@ -1543,6 +1588,7 @@ if ($('menu').classList.contains('hangar') && (preview.demoT -= dt) <= 0) { prev
   cockpit.root.visible = state !== 'menu' && !thirdPerson();
   if (ownMech && state === 'menu') ownMech.visible = false;
   updateTargets(dt, time);
+  updateCrates(dt, time);
   updateRemotes(dt);
   updateEnemyShots(dt);
   updateMissiles(dt);

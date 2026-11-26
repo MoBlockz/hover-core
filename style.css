@@ -146,3 +146,4 @@ details input[type=range] { flex: 1; }
 .sw.def { width: auto; padding: 0 8px; background: #0a1a26; color: #9fc7d6; font: 10px inherit; font-family: inherit; border-color: #2c5868; }
 .sw.sel { border-color: #ffb347; box-shadow: 0 0 0 2px #ffb347; }
 #viewBtn { width: auto; min-width: 38px; padding: 0 6px; white-space: nowrap; font-size: 14px; }
+#bFire.empty { opacity: .4; border-color: #775; }

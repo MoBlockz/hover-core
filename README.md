@@ -14,6 +14,8 @@ First-person cockpit mech combat for mobile and desktop browsers. You hover-skat
 - **Close-range combat:** ⚔ (F / middle click) lunges at the nearest target in front of you and strikes. Quad arms add a second strike, and blade hands attack very fast.
 - **Auto-aim:** shots near a target bend onto it, and the view gently tracks targets while you move fast. Adjust it with the Auto-aim slider in Settings.
 - **Quick boost:** an instant dash in any direction for dodging.
+- **Limited ammo:** each main weapon has a magazine plus a reserve. When both are empty, fly to one of the green supply crates around the arena to refill (crates respawn after 25s).
+- **Long flight:** boosting and climbing drain the generator slowly, and cruising in the air recharges it.
 - **Weapons:** a rifle with light aim assist, plus homing missiles that lock onto the target closest to your reticle.
 - **Three low-poly frames:** STRIDER (olive, balanced), WRAITH (purple, fast) and BASTION (gunmetal, heavy).
 - **Training arena:** static and sliding target mechs, flying drones, and a sparring AI that skates, flies, dodges and shoots back.
