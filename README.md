@@ -10,7 +10,9 @@ First-person cockpit mech combat for mobile and desktop browsers. You hover-skat
 - **Free flight:** hold RISE to take off. In the air the view has no pitch limit, so you can loop, roll and look anywhere, and thrust follows where you look. Auto-level is optional.
 - **Look down to dive:** while boosting in the air you fly wherever you look. Look down to dive at the ground, and you land straight into a skate that keeps your speed.
 - **Third person ability:** tap 👁 (or press V) for 10 seconds of third-person view, then it recharges for 10 seconds.
-- **Hangar customization:** choose your frame, head (mono-eye / horned / visor / V-crest), twin or **quad arms**, normal hands or **blade hands**, main weapon (assault rifle, gatling, shotgun, rail sniper, bazooka), side weapon (homing missiles, micro-missile swarm, shoulder cannon, none), close-range weapon (beam saber, heat axe, pile bunker), and main/accent/eye colors. Every part changes the model and the stats, and other players see your build in PvP.
+- **Hangar customization:** size (standard suit or **giant armor**), frame, head, body (standard / sleek / heavy / reactor core), legs (biped / reverse-joint / quadruped / hover skirt), mobility (standard pack / twin boosters / wing binders / jump jets / vernier array), arms (twin / quad / gauntlets / long), normal or blade hands, main, side and close-range weapons, and main/accent/eye colors. Every part changes the model and the stats, and other players see your build in PvP.
+- **Giant armor:** 4x size and armor, with mega cannons and an artillery battery. It is slow, burns fuel fast and has only a weak area swat for close range.
+- **Detailed models:** panel-line outlines, vents, bolts, trim markings and antennas on every mech.
 - **Close-range combat:** ⚔ (F / middle click) lunges at the nearest target in front of you and strikes. Quad arms add a second strike, and blade hands attack very fast.
 - **Auto-aim:** shots near a target bend onto it, and the view gently tracks targets while you move fast. Adjust it with the Auto-aim slider in Settings.
 - **Quick boost:** an instant dash in any direction for dodging.

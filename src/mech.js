@@ -156,7 +156,7 @@ function buildArm(torso, s, o, C, b) {
     m.position.set(0, -hand - 0.1, gaunt ? 0.6 : 0.2);
     elbow.add(m);
   }
-  return { sh, elbow, side: s, muzzle };
+  return { sh, elbow, side: s, muzzle, hand, big: o.big, gw, blade: !!o.blade };
 }
 
 function sideWeapons(torso, type, b, C) {
@@ -377,6 +377,7 @@ function buildGiant(lo, F, C, T) {
   const rig = { root, body, hips, torso, head, eye, legs, skirt: null, glows, legType: 'pods', arms, lowerArms: [], thrusters, wings,
     muzzle: arms[1].muzzle, muzzles: [arms[1].muzzle, arms[0].muzzle], sideMuzzles, frame: lo.frame, loadout: lo, sig: loadoutSig(lo), meleeKey: 'crush', giant: true };
   root.userData.rig = rig;
+  outline(root);
   root.scale.setScalar(4);
   return root;
 }
@@ -442,6 +443,137 @@ function buildPack(torso, type, b, C, T) {
   return thrusters;
 }
 
+// ---------- Detail pass ----------
+// Dark panel lines on every armor piece (one merged LineSegments per animated part keeps draw calls low).
+const edgeCache = new WeakMap();
+const lineMat = new THREE.LineBasicMaterial({ color: 0x0a0c0f, transparent: true, opacity: 0.85 });
+function edgesOf(geo) {
+  let e = edgeCache.get(geo);
+  if (!e) { e = new THREE.EdgesGeometry(geo, 25); edgeCache.set(geo, e); }
+  return e;
+}
+function outline(root) {
+  const holders = [];
+  root.traverse(o => { if (!o.isMesh && !o.isLineSegments) holders.push(o); });
+  const v = new THREE.Vector3();
+  for (const g of holders) {
+    const chunks = [];
+    let total = 0;
+    for (const c of g.children) {
+      if (!c.isMesh || !c.material.isMeshStandardMaterial) continue;
+      c.updateMatrix();
+      const e = edgesOf(c.geometry).attributes.position;
+      const arr = new Float32Array(e.count * 3);
+      for (let i = 0; i < e.count; i++) { v.fromBufferAttribute(e, i).applyMatrix4(c.matrix); arr[i * 3] = v.x; arr[i * 3 + 1] = v.y; arr[i * 3 + 2] = v.z; }
+      chunks.push(arr); total += arr.length;
+    }
+    if (!total) continue;
+    const all = new Float32Array(total);
+    let o = 0;
+    for (const a of chunks) { all.set(a, o); o += a.length; }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(all, 3));
+    const ls = new THREE.LineSegments(geo, lineMat);
+    ls.raycast = () => {};
+    g.add(ls);
+  }
+}
+
+// Row of vent slats inside a dark frame
+function vents(parent, x, y, z, w, h, n, C, rx = 0) {
+  const g = group(parent, x, y, z);
+  g.rotation.x = rx;
+  add(g, box(w, h, 0.06), C.J, 0, 0, 0);
+  for (let i = 0; i < n; i++) add(g, box(w * 0.82, h / (n * 2.2), 0.08), C.Tr, 0, -h / 2 + (i + 0.5) * h / n, 0.03);
+  return g;
+}
+function bolt(parent, x, y, z, r, C, axis = 'z') {
+  const m = add(parent, cyl(r, r, 0.12, 6), C.Fr, x, y, z);
+  if (axis === 'z') m.rotation.x = PI2; else if (axis === 'x') m.rotation.z = PI2;
+  return m;
+}
+
+const FRONT = { standard: 1.12, heavy: 1.42, sleek: 0.98, core: 0.9 };
+const HALF = { standard: 1.45, heavy: 2.0, sleek: 1.2, core: 1.45 };
+function addDetails(rig, lo, C, b) {
+  const t = rig.torso, fz = FRONT[lo.body] * b, hw = HALF[lo.body] * b;
+  // Chest: twin intake vents, seams, collar bolts, neck, side sensors
+  if (lo.body !== 'core') for (const s of [-1, 1]) vents(t, s * hw * 0.55, 1.45, fz + 0.03, 0.75, 0.62, 4, C, -0.1);
+  for (const s of [-1, 1]) {
+    add(t, box(0.05, 1.7, 1.4 * b), C.J, s * hw * 0.98, 1.9, 0);
+    bolt(t, s * hw * 0.75, 3.35, fz * 0.75, 0.11, C);
+    bolt(t, s * hw * 0.45, 3.35, fz * 0.75, 0.11, C);
+    add(t, box(0.12, 0.12, 0.06), glow(0x6bff8a), s * hw * 0.9, 2.75, fz * 0.72);
+    add(t, box(0.5, 0.14, 0.4), C.Tr, s * 0.55, 0.7, 0.62, 0, 0, s * 0.35); // waist V-trim
+  }
+  add(t, cyl(0.45, 0.55, 0.6, 8), C.J, 0, 3.75, 0.35);
+  add(t, box(0.9, 0.5, 0.25), C.D, 0, 0.2, 0.75);
+  // Backpack hoses
+  for (const s of [-1, 1]) {
+    const hose = add(t, new THREE.TorusGeometry(0.45, 0.1, 4, 8, Math.PI), C.J, s * 1.0 * b, 2.9, -1.05 * b);
+    hose.rotation.set(0, PI2, 0);
+  }
+  // Head: antenna + cheek vents + chin
+  const h = rig.head;
+  if (lo.head !== 'crest') {
+    add(h, cyl(0.04, 0.05, 1.8), C.Fr, 0.55, 1.0, -0.3, -0.3, 0, -0.25);
+    add(h, cyl(0.03, 0.04, 1.1), C.Fr, -0.5, 0.8, -0.4, -0.4, 0, 0.2);
+  }
+  for (const s of [-1, 1]) for (let i = 0; i < 3; i++) add(h, box(0.06, 0.32, 0.25), C.J, s * (0.62 + i * 0.1), -0.3, 0.95 - i * 0.12);
+  add(h, box(0.4, 0.18, 0.2), C.Tr, 0, -0.62, 1.2);
+  // Arms
+  for (const A of [...rig.arms, ...rig.lowerArms]) {
+    const s = A.side, sh = A.sh, el = A.elbow;
+    if (A.big) {
+      add(sh, box(1.9 * b, 0.14, 0.16), C.Tr, s * 0.5, 1.45, 1.38 * b, 0, 0, s * 0.12);
+      for (let i = 0; i < 3; i++) bolt(sh, s * 1.72 * b, 0.9 - i * 0.55, 0.9, 0.12, C, 'x');
+      add(sh, cyl(0.22, 0.32, 0.5), C.J, s * 0.5, 0.3, -1.55 * b, PI2);
+      add(sh, new THREE.CircleGeometry(0.2, 6), glow(0x7fd8ff, 0.85), s * 0.5, 0.3, -1.81 * b, 0, Math.PI);
+      add(sh, box(0.06, 1.8, 2.4 * b), C.J, s * 1.0 * b, 0.4, 0, 0, 0, s * 0.12);
+    }
+    add(el, taperBox(0.95 * A.gw, 0.9, 0.75, { tz: 0.5 }), C.M, 0, 0.25, -0.62 * A.gw);
+    if (!A.blade) add(el, cyl(0.58 * A.gw, 0.58 * A.gw, 0.24, 8), C.Fr, 0, -(A.hand - 0.5), 0);
+    add(el, box(0.8 * A.gw, 1.1, 0.06), C.J, 0, -1.4, 0.74 * b * A.gw);
+    add(el, box(0.5 * A.gw, 0.12, 0.08), C.Tr, 0, -0.75, 0.76 * b * A.gw);
+  }
+  // Hips: side hardpoints + skirt trim
+  for (const s of [-1, 1]) {
+    add(rig.hips, cyl(0.32, 0.32, 0.3, 8), C.Fr, s * 1.9, -0.5, 0, 0, 0, PI2);
+    add(rig.hips, box(0.12, 1.2, 0.1), C.Tr, s * 0.3, -0.4, 1.27, -0.15);
+  }
+  // Legs
+  for (const Lg of rig.legs) {
+    const s = Lg.side;
+    if (lo.legs === 'standard') {
+      add(Lg.hip, box(0.06, 2.0, 1.1 * b), C.J, s * 0.66 * b, -1.4, 0);
+      vents(Lg.hip, 0, -1.5, 0.76 * b, 0.7, 0.7, 3, C);
+      for (const k of [-1, 1]) bolt(Lg.knee, k * 0.64 * b, 0, 0, 0.28, C, 'x');
+      add(Lg.knee, box(0.55, 0.12, 0.06), C.Tr, 0, 0.45, 1.18);
+      add(Lg.knee, box(0.55, 0.12, 0.06), C.Tr, 0, 0.25, 1.15);
+      vents(Lg.knee, 0, -0.9, 1.2 * b, 0.75, 0.6, 3, C, -0.07);
+      add(Lg.knee, taperBox(1.3 * b, 0.9, 0.5, { tx: 0.8 }), C.D, 0, -3.05, 0.95 * b, -0.35);
+      add(Lg.knee, box(0.06, 2.6, 1.4 * b), C.J, s * 0.72 * b, -1.8, 0);
+      add(Lg.foot, box(0.9 * b, 0.12, 0.08), C.Tr, 0, 0.12, 1.55 * b);
+    } else if (lo.legs === 'hind') {
+      for (const k of [-1, 1]) bolt(Lg.knee, k * 0.62 * b, 0, 0, 0.25, C, 'x');
+      add(Lg.knee, box(0.5, 0.12, 0.06), C.Tr, 0, -0.6, -0.15, 0.55);
+      vents(Lg.hip, 0, -1.2, 1.25, 0.7, 0.6, 3, C, -0.45);
+      for (const k of [-1, 0, 1]) add(Lg.foot, box(0.2, 0.08, 0.3), C.Tr, k * 0.5, 0.15, 1.5, 0, k * 0.3, 0);
+    } else if (lo.legs === 'quad') {
+      bolt(Lg.knee, 0, 0, 0.6, 0.26, C);
+      vents(Lg.knee, -s * 0.3, -2.0, 0.68 * b, 0.6, 0.9, 4, C);
+      add(Lg.knee, box(0.8, 0.14, 0.08), C.Tr, -s * 0.3, -1.0, 0.7 * b);
+    }
+  }
+  if (rig.skirt) {
+    for (let i = 0; i < 8; i++) {
+      const a = i / 8 * Math.PI * 2;
+      add(rig.skirt, box(0.12, 2.2, 0.08), i % 2 ? C.J : C.Tr, Math.sin(a) * 2.75 * b, -1.6, Math.cos(a) * 2.75 * b, 0, a, 0).rotation.order = 'YXZ';
+    }
+    for (const s of [-1, 1]) vents(rig.skirt, s * 0.9, -1.4, 2.95 * b, 0.6, 0.8, 4, C, -0.35);
+  }
+}
+
 // spec: frame key string or a loadout object
 export function buildMech(spec = 'strider') {
   const lo = typeof spec === 'string' ? defaultLoadout(spec) : sanitizeLoadout(spec);
@@ -449,7 +581,7 @@ export function buildMech(spec = 'strider') {
   const b = F.bulk;
   const C = {
     M: mat(lo.color ?? F.main), D: mat(lo.accent ?? F.dark), Fr: mat(F.frame), J: mat(F.joint),
-    E: glow(lo.eye ?? F.eye),
+    E: glow(lo.eye ?? F.eye), Tr: mat(F.trim ?? 0xe0b030),
   };
   const T = glow(0x7fd8ff, 0.85);
   if (lo.size === 'giant') return buildGiant(lo, F, C, T);
@@ -517,6 +649,8 @@ export function buildMech(spec = 'strider') {
   const rig = { root, body, hips, torso, head, eye, legs, skirt, glows, legType: lo.legs, arms, lowerArms, thrusters, muzzle: muzzles[0], muzzles, sideMuzzles,
     frame: lo.frame, loadout: lo, sig: loadoutSig(lo), meleeKey: meleeKey(lo) };
   root.userData.rig = rig;
+  addDetails(rig, lo, C, b);
+  outline(root);
   return root;
 }
 

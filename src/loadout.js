@@ -1,9 +1,9 @@
 // Mech customization: parts, weapons and their stats.
 
 export const FRAMES = {
-  strider: { name: 'STRIDER', desc: 'Balanced frame', main: 0x56663f, dark: 0x37432a, frame: 0x8d949a, joint: 0x272b2f, eye: 0xffb347, hp: 100, speed: 1, bulk: 1, prop: [1, 1] },
-  wraith:  { name: 'WRAITH',  desc: 'Fast, light armor', main: 0x6555b4, dark: 0x25222f, frame: 0x9aa0b5, joint: 0x1a1922, eye: 0xff3b6b, hp: 85, speed: 1.12, bulk: 0.92, prop: [0.88, 1.1] },
-  bastion: { name: 'BASTION', desc: 'Heavy, slower', main: 0x67665e, dark: 0x403f3a, frame: 0x86867f, joint: 0x24241f, eye: 0xff5a2a, hp: 125, speed: 0.9, bulk: 1.14, prop: [1.16, 0.94] },
+  strider: { name: 'STRIDER', desc: 'Balanced frame', main: 0x56663f, dark: 0x37432a, frame: 0x8d949a, joint: 0x272b2f, eye: 0xffb347, hp: 100, speed: 1, bulk: 1, prop: [1, 1], trim: 0xe0b030 },
+  wraith:  { name: 'WRAITH',  desc: 'Fast, light armor', main: 0x6555b4, dark: 0x25222f, frame: 0x9aa0b5, joint: 0x1a1922, eye: 0xff3b6b, hp: 85, speed: 1.12, bulk: 0.92, prop: [0.88, 1.1], trim: 0xd03a5a },
+  bastion: { name: 'BASTION', desc: 'Heavy, slower', main: 0x67665e, dark: 0x403f3a, frame: 0x86867f, joint: 0x24241f, eye: 0xff5a2a, hp: 125, speed: 0.9, bulk: 1.14, prop: [1.16, 0.94], trim: 0xe07030 },
 };
 
 export const HEADS = {
