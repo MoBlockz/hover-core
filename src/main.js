@@ -5,7 +5,7 @@ import { Particles, Tracers, Flashes, SpeedLines } from './fx.js';
 import { Sfx } from './audio.js';
 import { Net, makeCode } from './net.js';
 import { Cockpit } from './cockpit.js';
-import { sanitizeLoadout, loadoutSig, loadoutStats, defaultLoadout, MAIN, SIDE, MELEE, HEADS, ARMS, HANDS, COLORS, ACCENTS, EYES } from './loadout.js';
+import { sanitizeLoadout, loadoutSig, loadoutStats, defaultLoadout, MAIN, SIDE, MELEE, HEADS, ARMS, HANDS, BODIES, LEGS, SIZES, MOBILITY, COLORS, ACCENTS, EYES } from './loadout.js';
 
 const $ = id => document.getElementById(id);
 const V = (x = 0, y = 0, z = 0) => new THREE.Vector3(x, y, z);
@@ -15,6 +15,8 @@ document.body.classList.toggle('touch', isTouch);
 
 // ---------- Tuning ----------
 const EYE = 10, RAD = 3.5, HGT = 13, HOVER = 1.1, BASE_FOV = 72;
+// Player body size (giant armor = 4x)
+let PG = 1, PE = EYE, PR = RAD, PH = HGT;
 const T = {
   groundAccel: 75, groundMax: 50,
   sprintMax: 128, stridePeriod: 0.36, strideImpulse: 27, strideAngle: 0.42,
@@ -298,7 +300,7 @@ function toGround(impact = 0) {
   else P.yaw = Math.atan2(-f.x, -f.z);
   P.pitch = clamp(Math.asin(clamp(f.y, -1, 1)), -1.2, 1.2);
   P.mode = 'ground'; P.blend = 0.45; if (P.vel.y < 0) P.vel.y = 0;
-  if (impact > 0.15) { P.shake = Math.max(P.shake, impact * 0.8); sfx.land(impact); dustRing(P.pos.x, P.pos.y - EYE, P.pos.z, 26 * impact + 8); }
+  if (impact > 0.15) { P.shake = Math.max(P.shake, impact * 0.8); sfx.land(impact); dustRing(P.pos.x, P.pos.y - PE, P.pos.z, (26 * impact + 8) * PG); }
 }
 function facingYaw() {
   if (P.mode === 'ground') return P.yaw;
@@ -405,7 +407,7 @@ function updateCrates(dt, time) {
     c.g.visible = true;
     c.g.rotation.y += dt * 1.2; c.g.position.y = c.y + Math.sin(time * 2 + c.x) * 0.6;
     if (state !== 'playing' || !P.alive) continue;
-    if (Math.hypot(P.pos.x - c.x, P.pos.z - c.z) < 10 && Math.abs(P.pos.y - EYE - c.y) < 12) {
+    if (Math.hypot(P.pos.x - c.x, P.pos.z - c.z) < 6.5 + PR && Math.abs(P.pos.y - PE - c.y) < 12 * PG) {
       const ws = W();
       P.reserve = ws.main.reserve; P.ammo = ws.main.mag; P.reloadT = 0; P.msl = ws.side.count;
       c.respawnT = 25; c.g.visible = false;
@@ -539,7 +541,7 @@ a.swingT = Math.min(1, (a.swingT ?? 1) + dt / 0.4);
   a.meleeCd = (a.meleeCd ?? 2) - dt;
   if (dist < 40 && a.meleeCd <= 0) { a.meleeCd = 2.6; a.vel.addScaledVector(toP.clone().normalize(), 130); a.swingT = 0; a.pendingHit = 0.22; }
   if (a.pendingHit > 0 && (a.pendingHit -= dt) <= 0) {
-    if (a.pos.distanceTo(P.pos) < 17) { takeDamage(10, 'ai', a.pos); slashFx(P.pos.clone().add(V(0, -2, 0)), camera.quaternion, MELEE.saber.color, 0.8); }
+    if (a.pos.distanceTo(playerCenter()) < 17 + PR) { takeDamage(10, 'ai', a.pos); slashFx(P.pos.clone().add(V(0, -2, 0)), camera.quaternion, MELEE.saber.color, 0.8); }
   }
   a.fireT -= dt;
   if (a.fireT <= 0 && dist < 520 && hasLOS(a.center, P.pos)) { a.burst = 4; a.burstT = 0; a.fireT = 2.0 + Math.random() * 1.5; }
@@ -547,7 +549,7 @@ a.swingT = Math.min(1, (a.swingT ?? 1) + dt / 0.4);
     a.burst--; a.burstT = 0.13;
     const muzzle = a.obj.userData.rig.muzzle.getWorldPosition(V());
     const speed = 340, tFlight = dist / speed;
-    const aim = P.pos.clone().add(V(0, -3, 0)).addScaledVector(P.vel, tFlight * 0.75);
+    const aim = playerCenter().addScaledVector(P.vel, tFlight * 0.75);
     const spread = 0.012 + P.vel.length() / 4500;
     const dir = aim.sub(muzzle).normalize().add(V((Math.random() - 0.5) * spread * 2, (Math.random() - 0.5) * spread * 2, (Math.random() - 0.5) * spread * 2)).normalize();
     fireEnemyShot(muzzle, dir.multiplyScalar(speed), 3, 'ai');
@@ -570,10 +572,10 @@ function updateEnemyShots(dt) {
     let dead = s.life <= 0;
     // segment vs player sphere
     if (!dead && P.alive) {
-      const c = V(P.pos.x, P.pos.y - 3, P.pos.z);
+      const c = playerCenter();
       const seg = s.m.position.clone().sub(prev), L = seg.length();
       const tt = clamp(c.clone().sub(prev).dot(seg) / (L * L || 1), 0, 1);
-      if (prev.clone().addScaledVector(seg, tt).distanceTo(c) < 5.5) { takeDamage(s.dmg, s.from, prev); dead = true; particles.burst(s.m.position, 12, 20, 0.3, 0xff7aa8); }
+      if (prev.clone().addScaledVector(seg, tt).distanceTo(c) < (PG > 1 ? 18 : 5.5)) { takeDamage(s.dmg, s.from, prev); dead = true; particles.burst(s.m.position, 12, 20, 0.3, 0xff7aa8); }
     }
     if (!dead && pointInArena(arena.colliders, s.m.position)) { dead = true; particles.burst(s.m.position, 10, 18, 0.35, 0xff9fc0, 10); }
     if (dead) { scene.remove(s.m); enemyShots.splice(i, 1); }
@@ -694,7 +696,7 @@ function updateMissiles(dt) {
     const s = missiles[i];
     s.life -= dt;
     let tgtPos = null;
-    if (s.target === 'me') tgtPos = P.alive ? V(P.pos.x, P.pos.y - 3, P.pos.z) : null;
+    if (s.target === 'me') tgtPos = P.alive ? playerCenter() : null;
     else if (s.target && s.target.alive) tgtPos = s.target.center;
     const speed = Math.min(300, s.v.length() + 260 * dt);
     const dir = s.v.clone().normalize();
@@ -731,14 +733,14 @@ function muzzlePos(i = 0) {
     const m = ownMech.userData.rig.muzzles;
     return m[i % m.length].getWorldPosition(V());
   }
-  return (i ? V(2.8, -3.8, -3.5) : V(2.2, -2.4, -4)).applyQuaternion(P.viewQ).add(P.pos);
+  return (i ? V(PG > 1 ? -2.2 : 2.8, PG > 1 ? -2.4 : -3.8, -3.5) : V(2.2, -2.4, -4)).multiplyScalar(PG).applyQuaternion(P.viewQ).add(P.pos);
 }
 function sideMuzzlePos(i) {
   if (thirdPerson() && ownMech && ownMech.visible) {
     const m = ownMech.userData.rig.sideMuzzles;
     if (m.length) { ownMech.updateMatrixWorld(true); return m[i % m.length].getWorldPosition(V()); }
   }
-  return V(i % 2 ? -3 : 3, 1.5, -2).applyQuaternion(P.viewQ).add(P.pos);
+  return V(i % 2 ? -3 : 3, 1.5, -2).multiplyScalar(PG).applyQuaternion(P.viewQ).add(P.pos);
 }
 // Where the crosshair is pointing (first wall/target hit)
 function aimPoint(ao, dir, range = 900) {
@@ -857,10 +859,22 @@ function updateWeapons(dt) {
 function updateMelee(dt) {
   const ws = W(), MM = ws.melee;
   P.meleeCd -= dt;
-  if (P.swingT < 1) P.swingT = Math.min(1, P.swingT + dt / (ws.melee === MELEE.blades ? 0.3 : 0.42));
+  if (P.swingT < 1) P.swingT = Math.min(1, P.swingT + dt / (ws.meleeKey === 'blades' ? 0.3 : 0.42));
   if (P.extraHit && (P.extraHit.t -= dt) <= 0) {
     const e = P.extraHit; P.extraHit = null;
     if (e.target.alive && e.target.center.distanceTo(P.pos) < 20) meleeHit(e.target, Math.round(MM.dmg * 0.5), false);
+  }
+  if (input.melee && ws.giant) {
+    input.melee = false;
+    if (P.alive && P.meleeCd <= 0) {
+      P.meleeCd = MM.cd; P.swingT = 0; P.swingArm++;
+      const c = playerCenter();
+      for (const t of liveTargets()) if (t.center.distanceTo(c) < MM.aoe) meleeHit(t, MM.dmg, false);
+      const fp = c.clone().addScaledVector(camForward(), 22);
+      slashFx(fp, camera.quaternion, MM.color, 4);
+      sfx.slash(); P.shake = Math.max(P.shake, 0.5);
+      if (mode === 'pvp') net.sendEvent({ type: 'slash', p: vArr(fp), q: [camera.quaternion.x, camera.quaternion.y, camera.quaternion.z, camera.quaternion.w], c: MM.color, arm: P.swingArm });
+    } else if (P.alive) sfx.beep();
   }
   if (input.melee) {
     input.melee = false;
@@ -943,7 +957,7 @@ function die(from) {
 function respawn() {
   const avoid = mode === 'pvp' ? [...remotes.values()].map(r => r.pos) : (settings.spar ? [ai.pos] : []);
   const sp = avoid.length ? farthestSpawn(avoid) : mode === 'pvp' ? arena.spawns[Math.floor(Math.random() * arena.spawns.length)] : arena.spawns[0];
-  P.pos.set(sp.x, EYE + HOVER, sp.z); P.vel.set(0, 0, 0);
+  P.pos.set(sp.x, PE + HOVER, sp.z); P.vel.set(0, 0, 0);
   P.yaw = sp.yaw; P.pitch = 0; P.mode = 'ground'; groundQuat(P.viewQ);
   P.hp = P.maxHp; P.energy = 100; P.overheat = false; P.alive = true;
   P.ammo = W().main.mag; P.reserve = W().main.reserve; P.reloadT = 0; P.msl = W().side.count; P.invuln = 2; P.lunge = null;
@@ -953,7 +967,7 @@ function respawn() {
 // ---------- Player movement ----------
 const _wish = V(), _hv = V();
 function updatePlayer(dt, time) {
-  const fs = W().speed;
+  const ws0 = W(), fs = ws0.speed, bs = ws0.boost;
   P.qbCd -= dt; P.invuln -= dt;
   if (!P.alive) {
     P.vel.multiplyScalar(Math.exp(-dt * 2));
@@ -977,25 +991,25 @@ function updatePlayer(dt, time) {
       if (P.strideT <= 0) {
         P.strideT = T.stridePeriod; P.strideSide *= -1;
         const dir = _wish.clone().normalize().applyAxisAngle(AY, P.strideSide * T.strideAngle);
-        const gain = T.strideImpulse * fs * clamp(1.45 - spd / (T.sprintMax * fs), 0.25, 1.45);
+        const gain = T.strideImpulse * fs * clamp(1.45 - spd / (T.sprintMax * fs * bs), 0.25, 1.45);
         P.vel.addScaledVector(dir, gain);
-        P.energy -= 3.2;
+        P.energy -= 3.2 * W().drain;
         P.rollKick = P.strideSide * 0.07;
         P.shake = Math.max(P.shake, 0.12);
         sfx.stride();
         const side = V(Math.cos(P.yaw), 0, -Math.sin(P.yaw)).multiplyScalar(P.strideSide * 2.5);
-        for (let i = 0; i < 14; i++) particles.spawn(P.pos.x + side.x, P.pos.y - EYE + 0.4, P.pos.z + side.z, -dir.x * 30 + (Math.random() - 0.5) * 16, 2 + Math.random() * 5, -dir.z * 30 + (Math.random() - 0.5) * 16, 0.6, 0x9fd8ff, 2.5, 3);
+        for (let i = 0; i < 14; i++) particles.spawn(P.pos.x + side.x, P.pos.y - PE + 0.4, P.pos.z + side.z, -dir.x * 30 + (Math.random() - 0.5) * 16, 2 + Math.random() * 5, -dir.z * 30 + (Math.random() - 0.5) * 16, 0.6, 0x9fd8ff, 2.5, 3);
       }
       P.vel.addScaledVector(_wish, 32 * fs * dt);
       P.phase += dt * Math.PI / T.stridePeriod;
-      max = T.sprintMax * fs;
+      max = T.sprintMax * fs * bs;
       P.energy += 6 * dt;
     } else {
       P.strideT = Math.min(P.strideT, 0.05);
       P.vel.addScaledVector(_wish, T.groundAccel * fs * dt);
       P.phase += dt * spd / 14;
       max = T.groundMax * fs;
-      P.energy += 30 * dt;
+      P.energy += 30 * W().regen * dt;
     }
     // Carve: bend velocity toward the stick direction like a skate edge.
     _hv.set(P.vel.x, 0, P.vel.z);
@@ -1011,13 +1025,13 @@ function updatePlayer(dt, time) {
     if (hs > max && !P.lunge) _hv.multiplyScalar(Math.exp(-dt * 2.6 * (hs - max) / max));
     P.vel.x = _hv.x; P.vel.z = _hv.z;
     // Hover spring
-    const feet = P.pos.y - EYE;
-    const g = groundAt(arena.colliders, P.pos.x, P.pos.z, feet, RAD * 0.6);
+    const feet = P.pos.y - PE;
+    const g = groundAt(arena.colliders, P.pos.x, P.pos.z, feet, PR * 0.6, 4 * PG);
     if (feet - g > 7) toAir();
     else P.vel.y += ((g + HOVER + Math.sin(time * 3) * 0.12 - feet) * 70 - P.vel.y * 12) * dt;
     // Jump / take off
     if (input.riseHeld && P.mode === 'ground' && !P.overheat && P.energy > 6) {
-      P.vel.y = Math.max(P.vel.y, T.jumpVel); P.energy -= 4;
+      P.vel.y = Math.max(P.vel.y, T.jumpVel * W().jump); P.energy -= 4 * W().drain;
       toAir(); sfx.jump(); dustRing(P.pos.x, feet, P.pos.z, 30);
       P.shake = Math.max(P.shake, 0.3);
     }
@@ -1035,16 +1049,16 @@ function updatePlayer(dt, time) {
     const thrust = f.multiplyScalar(fwdIn).addScaledVector(r, mx).addScaledVector(u, vert);
     if (thrust.length() > 1) thrust.normalize();
     P.boosting = wantSprint && thrust.length() > 0.1;
-    const acc = (P.boosting ? T.airBoostAccel : T.airAccel) * fs * (P.overheat ? 0.2 : 1);
+    const acc = (P.boosting ? T.airBoostAccel * bs : T.airAccel) * fs * W().air * (P.overheat ? 0.2 : 1);
     P.vel.addScaledVector(thrust, acc * dt);
     P.vel.y -= (P.overheat ? 30 : thrust.length() > 0.1 ? 3 : 12) * dt;
     if (P.boosting && fwdIn > 0 && fy < -0.25) P.vel.y += fy * 45 * dt; // dive assist
     P.vel.multiplyScalar(Math.exp(-0.45 * dt));
-    const max = (P.boosting ? T.airBoostMax : T.airMax) * fs, s = P.vel.length();
+    const max = (P.boosting ? T.airBoostMax * bs : T.airMax) * fs * W().air, s = P.vel.length();
     if (s > max && !P.lunge) P.vel.multiplyScalar(Math.exp(-dt * 2.6 * (s - max) / max));
     // Cruising recharges the generator; boosting/climbing drains it slowly.
-    if (P.boosting || input.riseHeld) P.energy -= dt * (0.5 + (P.boosting ? 7 : 0) + (input.riseHeld ? 2.5 : 0));
-    else P.energy += dt * 4;
+    if (P.boosting || input.riseHeld) P.energy -= dt * (0.5 + (P.boosting ? 7 : 0) + (input.riseHeld ? 2.5 : 0)) * W().drain;
+    else P.energy += dt * 4 * W().regen;
     P.phase += dt;
     if (P.boosting) {
       const back = forwardOf(P.q).multiplyScalar(-1);
@@ -1064,7 +1078,7 @@ function updatePlayer(dt, time) {
       }
       dir.normalize();
       P.vel.addScaledVector(dir, T.qbImpulse * fs);
-      P.energy -= 14; P.qbCd = 0.45;
+      P.energy -= 14 * W().drain * W().qbCost; P.qbCd = 0.45 * W().qbCd;
       P.shake = Math.max(P.shake, 0.55); P.fovKick = 14;
       sfx.boost();
       for (let i = 0; i < 40; i++) particles.spawn(P.pos.x - dir.x * 6, P.pos.y - 4, P.pos.z - dir.z * 6, -dir.x * 80 + (Math.random() - 0.5) * 30, -dir.y * 80 + (Math.random() - 0.5) * 30, -dir.z * 80 + (Math.random() - 0.5) * 30, 0.4, 0x9fe8ff, 3);
@@ -1082,15 +1096,15 @@ function updatePlayer(dt, time) {
   let landed = false;
   for (let i = 0; i < steps; i++) {
     P.pos.addScaledVector(P.vel, dt / steps);
-    if (resolveCollisions(arena.colliders, P.pos, EYE, RAD, HGT, P.vel)) landed = true;
+    if (resolveCollisions(arena.colliders, P.pos, PE, PR, PH, P.vel)) landed = true;
   }
-  P.pos.x = clamp(P.pos.x, -ARENA_HALF + RAD, ARENA_HALF - RAD);
-  P.pos.z = clamp(P.pos.z, -ARENA_HALF + RAD, ARENA_HALF - RAD);
+  P.pos.x = clamp(P.pos.x, -ARENA_HALF + PR, ARENA_HALF - PR);
+  P.pos.z = clamp(P.pos.z, -ARENA_HALF + PR, ARENA_HALF - PR);
   if (P.pos.y > CEILING) { P.pos.y = CEILING; P.vel.y = Math.min(0, P.vel.y); }
-  const feet = P.pos.y - EYE;
-  if (feet < 0) { P.pos.y = EYE; if (P.vel.y < 0) P.vel.y = 0; landed = true; }
+  const feet = P.pos.y - PE;
+  if (feet < 0) { P.pos.y = PE; if (P.vel.y < 0) P.vel.y = 0; landed = true; }
   if (P.mode === 'air') {
-    const g = groundAt(arena.colliders, P.pos.x, P.pos.z, feet, RAD * 0.6);
+    const g = groundAt(arena.colliders, P.pos.x, P.pos.z, feet, PR * 0.6, 4 * PG);
     if ((landed || feet <= g + HOVER + 0.4) && P.vel.y <= 2 && !input.riseHeld) {
       // Boost-dive into the ground: convert the drop into skating speed
       if (vyBefore < -15 && input.sprintHold) {
@@ -1119,7 +1133,7 @@ function poseOwnMech(dt, show) {
   if (!ownMech.visible) return;
   const yaw = facingYaw() + Math.PI, f = camForward();
   const tilt = P.mode === 'air' ? -Math.asin(clamp(f.y, -1, 1)) * 0.7 : 0;
-  ownMech.position.set(P.pos.x, P.pos.y - EYE, P.pos.z);
+  ownMech.position.set(P.pos.x, P.pos.y - PE, P.pos.z);
   ownMech.rotation.set(tilt, yaw, P.mode === 'ground' ? -P.roll * 1.5 : 0, 'YXZ');
   const lv = P.vel.clone().applyAxisAngle(AY, -yaw);
   animateMech(ownMech.userData.rig, { fwd: lv.z, side: lv.x, up: P.vel.y, speed: Math.hypot(P.vel.x, P.vel.z), air: P.mode === 'air', phase: P.phase, boost: P.boosting, dt, aimPitch: P.mode === 'ground' ? P.pitch : 0, swing: { t: P.swingT, arm: P.swingArm } });
@@ -1148,7 +1162,7 @@ function updateCamera(dt, time) {
   if (tp) {
     // Chase camera behind and above the mech, pulled in front of walls.
     const pivot = P.pos.clone().add(V(0, 1.5, 0));
-    const back = V(6.5, 4.5, 24 + clamp(sp / 200, 0, 1) * 6).applyQuaternion(P.viewQ); // over the right shoulder
+    const back = V(6.5, 4.5, 24 + clamp(sp / 200, 0, 1) * 6).multiplyScalar(PG).applyQuaternion(P.viewQ); // over the right shoulder
     const L = back.length();
     _ray.set(pivot, back.clone().divideScalar(L));
     const hitD = rayArena(arena.colliders, _ray, L + 2);
@@ -1170,7 +1184,7 @@ function updateCamera(dt, time) {
   cockpit.rig.position.copy(P.sway);
   cockpit.animate(time, input.mx, input.my, input.riseHeld ? 1 : input.diveHeld ? -1 : 0);
   // own shadow
-  placeShadow(P.shadow, P.pos.x, P.pos.y - EYE, P.pos.z, P.alive);
+  placeShadow(P.shadow, P.pos.x, P.pos.y - PE, P.pos.z, P.alive);
 }
 
 // ---------- PvP ----------
@@ -1192,6 +1206,8 @@ function makeNet() {
         if (r && r.sig !== sig) { removeRemote(s.id); r = null; }
         if (!r) {
           r = mechTarget('remote', lo, '', 100);
+          r.g = lo.size === 'giant' ? 4 : 1;
+          if (r.g > 1) { r.spheres = MECH_SPHERES.map(q => ({ y: q.y * r.g, r: q.r * r.g })); r.shadow.userData.size = 9 * r.g; }
           r.id = s.id; r.sig = sig; r.pos = V(...s.p); r.net = V(...s.p); r.netVel = V(); r.yaw = 0; r.swingT = 1; r.swingArm = 0;
           remotes.set(s.id, r);
         }
@@ -1245,15 +1261,15 @@ function updateRemotes(dt) {
     r.net.addScaledVector(r.netVel, dt); // extrapolate between packets
     r.pos.lerp(r.net, 1 - Math.exp(-dt * 14));
     r.obj.visible = r.alive; r.shadow.visible = r.alive;
-    r.obj.position.set(r.pos.x, r.pos.y - EYE, r.pos.z);
+    r.obj.position.set(r.pos.x, r.pos.y - EYE * r.g, r.pos.z);
     r.obj.rotation.y = r.yaw + Math.PI;
     const lv = r.netVel.clone().applyAxisAngle(AY, -(r.yaw + Math.PI));
     const hs = Math.hypot(r.netVel.x, r.netVel.z);
     r.phase += r.air ? dt : (r.boost ? dt * Math.PI / T.stridePeriod : dt * hs / 14);
 r.swingT = Math.min(1, r.swingT + dt / 0.4);
     animateMech(r.obj.userData.rig, { fwd: lv.z, side: lv.x, up: r.netVel.y, speed: hs, air: r.air, phase: r.phase, boost: r.boost, dt, aimPitch: r.pitch, swing: { t: r.swingT, arm: r.swingArm } });
-    r.center.set(r.pos.x, r.pos.y - EYE + 8, r.pos.z);
-    placeShadow(r.shadow, r.pos.x, r.pos.y - EYE, r.pos.z, r.alive);
+    r.center.set(r.pos.x, r.pos.y - EYE * r.g + 8 * r.g, r.pos.z);
+    placeShadow(r.shadow, r.pos.x, r.pos.y - EYE * r.g, r.pos.z, r.alive);
   }
 }
 let sendT = 0;
@@ -1373,7 +1389,7 @@ function drawHUD(dt) {
   // DOM readouts
   const sp = P.vel.length();
   $('spd').textContent = Math.round(sp * 3.6);
-  $('alt').textContent = Math.round(Math.max(0, P.pos.y - EYE));
+  $('alt').textContent = Math.round(Math.max(0, P.pos.y - PE));
   $('armorFill').style.width = (P.hp / P.maxHp * 100) + '%';
   $('armorFill').classList.toggle('low', P.hp / P.maxHp < 0.3);
   $('enFill').style.width = P.energy + '%';
@@ -1400,7 +1416,7 @@ function drawHUD(dt) {
     const blips = [];
     for (const c of crates) if (c.g.visible) blips.push({ dx: c.x - P.pos.x, dz: c.z - P.pos.z, c: '#6bff8a', air: false });
     for (const t of liveTargets()) blips.push({ dx: t.center.x - P.pos.x, dz: t.center.z - P.pos.z, c: t.kind === 'remote' || t.kind === 'ai' ? '#ff5a5a' : '#ffd36a', air: t.kind === 'drone' || t.air || (t.mode === 'air') });
-    cockpit.draw({ yaw: facingYaw(), blips, hp: P.hp, maxHp: P.maxHp, energy: P.energy, overheat: P.overheat, mode: P.mode === 'air' ? 'FLIGHT' : 'HOVER', alt: P.pos.y - EYE,
+    cockpit.draw({ yaw: facingYaw(), blips, hp: P.hp, maxHp: P.maxHp, energy: P.energy, overheat: P.overheat, mode: P.mode === 'air' ? 'FLIGHT' : 'HOVER', alt: P.pos.y - PE,
       ammo: P.ammo, reloading: P.reloadT > 0, msl: P.msl, mslMax: ws.side.count, locked: P.locked, frame: FRAMES[settings.frame].name,
       mainName: ws.main.name, sideName: ws.side.name, meleeName: ws.melee.name, meleeReady: P.meleeCd <= 0 });
   }
@@ -1424,7 +1440,7 @@ function buildFramePicker() {
     const b = document.createElement('button');
     b.className = 'frame' + (settings.frame === k ? ' sel' : '');
     b.innerHTML = `<i style="background:#${F.main.toString(16).padStart(6, '0')}"></i><b>${F.name}</b><small>${F.desc}</small>`;
-    b.onclick = () => { setLoadout({ frame: k }); buildFramePicker(); };
+    b.onclick = () => { setLoadout(defaultLoadout(k)); buildFramePicker(); };
     wrap.appendChild(b);
   }
 }
@@ -1438,8 +1454,13 @@ function showMenu(paused) {
   if (document.pointerLockElement) document.exitPointerLock();
 }
 function pause() { if (state === 'playing') showMenu(true); }
+function playerCenter() { return V(P.pos.x, P.pos.y - PE + 8 * PG, P.pos.z); }
 function applyFrameStats() {
   P.maxHp = W().hp;
+  const g = W().g, oldPE = PE;
+  PG = g; PE = EYE * g; PR = RAD * g; PH = HGT * g;
+  P.pos.y += PE - oldPE;
+  P.shadow.userData.size = 10 * g;
   P.hp = Math.min(P.hp, P.maxHp);
 }
 function begin() {
@@ -1488,7 +1509,7 @@ $('controlsHelp').innerHTML = isTouch
 buildFramePicker();
 
 const HANGAR = [
-  ['FRAME', 'frame', FRAMES], ['HEAD', 'head', HEADS], ['ARMS', 'arms', ARMS], ['HANDS', 'hands', HANDS],
+  ['SIZE', 'size', SIZES], ['FRAME', 'frame', FRAMES], ['HEAD', 'head', HEADS], ['BODY', 'body', BODIES], ['LEGS', 'legs', LEGS], ['MOBILITY', 'mobility', MOBILITY], ['ARMS', 'arms', ARMS], ['HANDS', 'hands', HANDS],
   ['MAIN WEAPON', 'main', MAIN], ['SIDE WEAPON', 'side', SIDE], ['CLOSE RANGE', 'melee', MELEE],
 ];
 const hex = c => '#' + c.toString(16).padStart(6, '0');
@@ -1499,9 +1520,10 @@ function buildHangar() {
     const sec = document.createElement('div'); sec.className = 'sec';
     sec.innerHTML = `<h3>${title}</h3>`;
     const row = document.createElement('div'); row.className = 'opts';
-    const locked = key === 'melee' && lo.hands === 'blades';
+    const giantLock = lo.size === 'giant' && ['body', 'legs', 'mobility', 'arms', 'hands', 'main', 'side', 'melee'].includes(key);
+    const locked = giantLock || (key === 'melee' && lo.hands === 'blades');
     for (const [k, o] of Object.entries(table)) {
-      if (key === 'melee' && k === 'blades') continue;
+      if ((key === 'melee' && k === 'blades') || o.hidden) continue;
       const b = document.createElement('button');
       b.className = 'opt' + (lo[key] === k && !locked ? ' sel' : '');
       b.disabled = locked;
@@ -1510,7 +1532,8 @@ function buildHangar() {
       row.appendChild(b);
     }
     sec.appendChild(row);
-    if (locked) sec.insertAdjacentHTML('beforeend', '<p class="note">Blade hands use their built-in ARM BLADES.</p>');
+    if (giantLock) sec.insertAdjacentHTML('beforeend', '<p class="note">Giant armor uses its own artillery loadout.</p>');
+    else if (locked) sec.insertAdjacentHTML('beforeend', '<p class="note">Blade hands use their built-in ARM BLADES.</p>');
     body.appendChild(sec);
   }
   for (const [title, key, list] of [['MAIN COLOR', 'color', COLORS], ['ACCENT COLOR', 'accent', ACCENTS], ['EYE COLOR', 'eye', EYES]]) {
@@ -1577,8 +1600,9 @@ function frame() {
 if ($('menu').classList.contains('hangar') && (preview.demoT -= dt) <= 0) { preview.demoT = 3.5; preview.swingT = 0; }
       preview.swingT = Math.min(1, preview.swingT + dt / 0.5);
       animateMech(preview.obj.userData.rig, { fwd: 0, side: 0, up: 0, speed: 0, air: false, phase: time, boost: false, dt, aimPitch: 0, swing: { t: preview.swingT, arm: Math.floor(time / 3.5) } });
-      camera.position.set(Math.sin(a) * 26, 9 + Math.sin(time * 0.3) * 2, 470 + Math.cos(a) * 26);
-      camera.lookAt(0, 7, 470);
+      const pg = settings.loadout.size === 'giant' ? 3.6 : 1;
+      camera.position.set(Math.sin(a) * 26 * pg, (9 + Math.sin(time * 0.3) * 2) * pg, 470 + Math.cos(a) * 26 * pg);
+      camera.lookAt(0, 7 * pg, 470);
       camera.rotateY(innerWidth > innerHeight ? 0.42 : 0);
       if (camera.fov !== BASE_FOV) { camera.fov = BASE_FOV; camera.updateProjectionMatrix(); }
     }

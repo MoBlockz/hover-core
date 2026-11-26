@@ -70,6 +70,14 @@ function weaponMesh(type, C) {
     add(g, cyl(0.22, 0.22, 1.6), C.D, 0, -0.8, 0.62);
     add(g, box(0.3, 0.9, 0.2), C.D, 0, -2.2, -0.45);
     mz = -7.6;
+  } else if (type === 'megacannon') {
+    add(g, box(1.7, 2.2, 1.7), C.D, 0, -0.6, 0);
+    for (let i = 0; i < 4; i++) {
+      const x = (i % 2 - 0.5) * 0.75, z = (Math.floor(i / 2) - 0.5) * 0.75;
+      add(g, cyl(0.24, 0.24, 3.2), C.J, x, -3.0, z);
+      add(g, cyl(0.32, 0.32, 0.4), C.Fr, x, -4.5, z);
+    }
+    mz = -4.8;
   } else if (type === 'bazooka') {
     add(g, cyl(0.62, 0.62, 6, 8), C.D, 0, -1.6, 0.2);
     add(g, cyl(0.8, 0.62, 0.8, 8), C.J, 0, -4.8, 0.2);
@@ -103,6 +111,8 @@ function meleeMesh(type, C) {
 }
 
 function buildArm(torso, s, o, C, b) {
+  const gaunt = o.type === 'gauntlet', long = o.type === 'long';
+  const ul = long ? 3.6 : 2.8, hand = long ? 3.9 : gaunt ? 3.4 : 3.0, gw = gaunt ? 1.55 : 1;
   const sh = group(torso, o.x, o.y, o.z);
   sh.scale.setScalar(o.scale);
   if (o.big) {
@@ -113,25 +123,26 @@ function buildArm(torso, s, o, C, b) {
     add(sh, cyl(0.7, 0.7, 1.2, 6), C.J, 0, 0, 0, 0, 0, PI2);
     add(sh, taperBox(1.4, 1.4, 1.8, { bx: 0.7 }), C.M, s * 0.3, 0.3, 0, 0, 0, s * 0.15);
   }
-  add(sh, box(0.85, 2.2, 0.85), C.Fr, s * 0.3, -1.6, 0);
-  const elbow = group(sh, s * 0.3, -2.8, 0);
-  add(elbow, cyl(0.45, 0.45, 1.0), C.J, 0, 0, 0, 0, 0, PI2);
-  add(elbow, taperBox(1.3 * b, 2.6, 1.45 * b, { tx: 0.85, tz: 0.85 }), C.M, 0, -1.4, 0);
-  add(elbow, box(0.3, 2.0, 1.25 * b), C.D, s * 0.72 * b, -1.3, 0);
+  add(sh, box(0.85, ul - 0.6, 0.85), C.Fr, s * 0.3, -ul / 2 - 0.2, 0);
+  const elbow = group(sh, s * 0.3, -ul, 0);
+  add(elbow, cyl(0.45 * gw, 0.45 * gw, 1.0), C.J, 0, 0, 0, 0, 0, PI2);
+  add(elbow, taperBox(1.3 * b * gw, hand - 0.4, 1.45 * b * gw, { tx: gaunt ? 0.75 : 0.85, tz: 0.85, bx: gaunt ? 1.15 : 1, bz: gaunt ? 1.1 : 1 }), C.M, 0, -(hand - 0.4) / 2 - 0.1, 0);
+  add(elbow, box(0.3, hand - 1, 1.25 * b * gw), C.D, s * 0.72 * b * gw, -hand / 2 + 0.2, 0);
+  if (gaunt) for (const k of [-1, 0, 1]) add(elbow, taperBox(0.3, 0.6, 0.35, { tx: 0.3, tz: 0.3 }), C.Fr, k * 0.6, -hand + 0.9, 1.25);
   let blade = null;
   if (o.blade) {
     // Blade hand: long angled blade instead of a fist
-    blade = group(elbow, 0, -3.0, 0);
+    blade = group(elbow, 0, -hand, 0);
     add(blade, box(0.7, 0.7, 0.8), C.J, 0, 0, 0);
     add(blade, taperBox(0.28, 4.6, 1.1, { tz: 0.15, tx: 0.5 }), C.Fr, 0, -2.6, 0.15);
     add(blade, box(0.07, 4.2, 0.09), glow(MELEE.blades.color), 0, -2.5, 0.68);
-  } else add(elbow, box(0.8, 0.8, 0.9), C.J, 0, -3.0, 0);
+  } else add(elbow, gaunt ? box(1.7, 1.5, 1.7) : box(0.8, 0.8, 0.9), gaunt ? C.D : C.J, 0, -hand, 0);
 
   let muzzle = null;
   if (o.weapon) {
     const w = weaponMesh(o.weapon, C);
     if (o.blade) { w.g.position.set(s * 0.95, -1.0, 0.3); w.g.scale.setScalar(0.8); } // forearm-mounted
-    else w.g.position.set(0, -3.0, 0.75);
+    else w.g.position.set(0, -hand, gaunt ? 1.3 : 0.75);
     elbow.add(w.g);
     muzzle = w.muzzle;
   }
@@ -142,7 +153,7 @@ function buildArm(torso, s, o, C, b) {
     add(p, box(0.95, 0.3, 1.15), glow(MELEE.pile.color), 0, 0.9, 0);
   } else if (o.melee) {
     const m = meleeMesh(o.melee, C);
-    m.position.set(0, -3.1, 0.2);
+    m.position.set(0, -hand - 0.1, gaunt ? 0.6 : 0.2);
     elbow.add(m);
   }
   return { sh, elbow, side: s, muzzle };
@@ -204,6 +215,233 @@ function buildHead(torso, type, b, C) {
   return { head, eye };
 }
 
+function buildBody(torso, type, b, C) {
+  add(torso, box(1.6, 1.0, 1.3), C.J, 0, 0.2, 0);
+  if (type === 'sleek') {
+    add(torso, taperBox(2.6 * b, 2.5, 2.0 * b, { bx: 0.6, bz: 0.7, fx: 0.7 }), C.M, 0, 1.8, 0);
+    add(torso, taperBox(3.3 * b, 1.0, 2.2 * b, { tx: 0.7, tz: 0.6 }), C.M, 0, 3.35, 0);
+    add(torso, taperBox(0.9, 2.4, 1.0, { tx: 0.3, bx: 0.5, tz: 0.4 }), C.D, 0, 2.0, 1.05 * b);
+    for (const s of [-1, 1]) add(torso, taperBox(0.18, 3.0, 1.8, { tx: 0.2, tz: 0.3 }), C.D, s * 1.05, 4.2, -1.4, -0.5, 0, s * 0.45);
+    add(torso, box(0.4, 0.1, 0.05), C.E, 0, 2.9, 1.6 * b);
+  } else if (type === 'heavy') {
+    add(torso, taperBox(4.2 * b, 2.8, 2.8 * b, { bx: 0.7, bz: 0.8 }), C.M, 0, 1.9, 0);
+    add(torso, taperBox(4.6 * b, 1.2, 3.0 * b, { tx: 0.8, tz: 0.7 }), C.M, 0, 3.6, 0);
+    for (const s of [-1, 1]) {
+      add(torso, taperBox(1.7, 2.1, 0.5, { bx: 0.8 }), C.D, s * 0.9, 2.0, 1.5 * b, -0.1);
+      add(torso, taperBox(0.6, 2.4, 2.4, { bz: 0.7 }), C.D, s * 2.2 * b, 1.7, 0, 0, 0, s * 0.12);
+      for (let i = 0; i < 3; i++) add(torso, box(0.9, 0.12, 0.1), C.J, s * 0.9, 1.4 + i * 0.35, 1.78 * b);
+    }
+    add(torso, box(0.7, 0.14, 0.05), C.E, 0, 3.0, 1.65 * b);
+  } else if (type === 'core') {
+    add(torso, taperBox(3.2 * b, 2.4, 2.0 * b, { bx: 0.68, bz: 0.8 }), C.M, 0, 1.8, -0.15);
+    add(torso, taperBox(3.8 * b, 1.1, 2.5 * b, { tx: 0.78, tz: 0.68 }), C.M, 0, 3.4, 0);
+    add(torso, new THREE.IcosahedronGeometry(0.85, 0), C.E, 0, 2.0, 0.95 * b);
+    add(torso, new THREE.TorusGeometry(1.1, 0.18, 4, 8), C.Fr, 0, 2.0, 1.0 * b);
+    for (const s of [-1, 1]) for (let i = 0; i < 3; i++) add(torso, box(0.9, 0.18, 0.4), C.D, s * 1.05, 1.2 + i * 0.6, 1.0 * b, 0, 0, s * (0.3 - i * 0.2));
+  } else {
+    add(torso, taperBox(3.2 * b, 2.4, 2.2 * b, { bx: 0.68, bz: 0.8 }), C.M, 0, 1.8, 0);
+    add(torso, taperBox(3.8 * b, 1.1, 2.5 * b, { tx: 0.78, tz: 0.68 }), C.M, 0, 3.4, 0);
+    add(torso, taperBox(1.6, 1.6, 0.5, { tx: 0.7, bx: 0.85 }), C.D, 0, 2.0, 1.15 * b);
+    for (const s of [-1, 1]) add(torso, box(0.5, 0.9, 0.2), C.Fr, s * 1.0, 1.5, 1.15 * b);
+    add(torso, box(0.55, 0.12, 0.05), C.E, 0, 2.55, 1.42 * b);
+  }
+}
+
+function buildLegs(hips, type, b, C, T) {
+  const legs = [], glows = [];
+  const glowDisc = (parent, r, x, y, z) => { const g = add(parent, new THREE.CircleGeometry(r, 10), T, x, y, z, PI2); glows.push(g); return g; };
+  if (type === 'hover') {
+    const skirt = group(hips, 0, -0.6, 0);
+    add(skirt, cyl(2.0 * b, 3.3 * b, 3.0, 8), C.M, 0, -1.5, 0);
+    add(skirt, cyl(3.35 * b, 3.0 * b, 0.5, 8), C.D, 0, -3.2, 0);
+    for (const s of [-1, 1]) add(skirt, taperBox(0.4, 2.6, 2.6, { tz: 0.5 }), C.D, s * 3.0 * b, -2.0, 0, 0, 0, s * 0.35);
+    add(skirt, taperBox(2.0, 2.4, 0.4, { tx: 0.6 }), C.D, 0, -1.7, 2.9 * b, -0.35);
+    glowDisc(skirt, 2.7 * b, 0, -3.5, 0);
+    return { legs, skirt, glows };
+  }
+  if (type === 'quad') {
+    add(hips, taperBox(2.4 * b, 1.6, 3.8, { tz: 0.8, bx: 0.8 }), C.D, 0, 0.1, -2.6);
+    add(hips, taperBox(2.0 * b, 1.0, 2.2, { tx: 0.8 }), C.M, 0, 0.9, -3.1);
+    add(hips, taperBox(0.5, 0.5, 2.4, { tx: 0.3, tz: 0.3 }), C.M, 0, 0.7, -5.2, 0.3);
+    for (const [front, off] of [[true, 0], [false, Math.PI]]) for (const s of [-1, 1]) {
+      const hip = group(hips, s * 1.4 * b, -0.1, front ? 0.9 : -3.6);
+      add(hip, cyl(0.55, 0.55, 1.0), C.J, 0, 0, 0, 0, 0, PI2);
+      add(hip, taperBox(0.95 * b, 2.6, 1.2 * b, { bx: 0.8 }), C.M, s * 1.0, -0.6, 0, 0, 0, s * 1.05);
+      const knee = group(hip, s * 2.0, -1.2, 0);
+      add(knee, cyl(0.5, 0.5, 1.1), C.J, 0, 0, 0, 0, 0, PI2);
+      add(knee, taperBox(1.1 * b, 5.0, 1.3 * b, { tx: 1.15, bx: 0.6, bz: 0.7 }), C.M, -s * 0.3, -2.6, 0, 0, 0, -s * 0.12);
+      add(knee, box(0.5, 2.6, 0.5), C.Fr, -s * 0.1, -2.2, front ? 0.7 : -0.7);
+      const foot = group(knee, -s * 0.6, -5.3, 0);
+      add(foot, taperBox(1.5, 0.6, 1.8, { tx: 0.7, tz: 0.7 }), C.D, 0, -0.1, 0.2);
+      const g = glowDisc(foot, 0.5, 0, -0.42, 0.2);
+      legs.push({ hip, knee, foot, glow: g, side: s, phaseOff: off, front });
+    }
+    return { legs, skirt: null, glows };
+  }
+  if (type === 'hind') {
+    for (const s of [-1, 1]) {
+      const hip = group(hips, s * 1.2, -0.3, 0);
+      add(hip, taperBox(1.4 * b, 2.8, 1.6 * b, { bx: 0.8, bz: 0.8 }), C.M, 0, -1.2, 0.55, -0.45);
+      const knee = group(hip, 0, -2.4, 1.1);
+      add(knee, cyl(0.55, 0.55, 1.2 * b), C.J, 0, 0, 0, 0, 0, PI2);
+      add(knee, taperBox(1.1 * b, 3.0, 1.25 * b, { tx: 1.1, bx: 0.7 }), C.M, 0, -1.3, -0.75, 0.55);
+      add(knee, box(0.45, 2.4, 0.45), C.Fr, 0, -1.1, -0.25, 0.55);
+      const ankle = group(knee, 0, -2.5, -1.5);
+      add(ankle, cyl(0.42, 0.42, 1.0 * b), C.J, 0, 0, 0, 0, 0, PI2);
+      add(ankle, taperBox(0.8 * b, 1.9, 0.9, { tx: 1.1 }), C.D, 0, -0.9, 0.2, -0.2);
+      const foot = group(ankle, 0, -1.75, 0.4);
+      for (const t of [-1, 0, 1]) add(foot, taperBox(0.38, 0.45, 1.7, { tx: 0.4, tz: 0.2 }), C.D, t * 0.45, -0.05, 0.9, 0, t * 0.3, 0);
+      add(foot, taperBox(0.35, 0.4, 1.2, { tz: 0.2 }), C.M, 0, 0, -0.8);
+      const g = glowDisc(foot, 0.5, 0, -0.32, 0.2);
+      legs.push({ hip, knee, ankle, foot, glow: g, side: s });
+    }
+    return { legs, skirt: null, glows };
+  }
+  return { legs, skirt: null, glows }; // standard legs are built inline
+}
+
+// Giant armor: winged upper body on huge thruster-tank "legs". Built at normal scale, then scaled 4x.
+function buildGiant(lo, F, C, T) {
+  const root = new THREE.Group();
+  const body = group(root);
+  const hips = group(body, 0, 7.2, 0);
+  const red = glow(0xd03a3a);
+  add(hips, taperBox(3.6, 1.6, 3.0, { tx: 1.1, bx: 0.8 }), C.D);
+  for (const [x, z, ry] of [[0, 1.8, 0], [-2.0, 0.9, -0.7], [2.0, 0.9, 0.7], [-2.0, -1.1, -2.4], [2.0, -1.1, 2.4]]) {
+    const p = add(hips, taperBox(2.3, 3.6, 0.5, { bx: 1.15 }), C.M, x, -1.4, z);
+    p.rotation.order = 'YXZ'; p.rotation.set(-0.25, ry, 0);
+    const v = add(p, box(1.3, 0.35, 0.1), red, 0, -0.8, 0.28);
+    v.rotation.set(0, 0, 0);
+  }
+  const legs = [], glows = [];
+  for (const s of [-1, 1]) {
+    const hip = group(hips, s * 1.5, -0.4, -0.4);
+    add(hip, cyl(1.1, 1.1, 1.2, 10), C.J, 0, 0, 0);
+    add(hip, cyl(1.3, 1.3, 5.2, 10), C.M, 0, -3.2, 0);
+    add(hip, cyl(1.34, 1.34, 0.9, 10), C.Fr, 0, -2.2, 0);
+    add(hip, cyl(1.34, 1.34, 0.2, 10), mat(0xc9a23a), 0, -4.6, 0);
+    add(hip, new THREE.SphereGeometry(1.3, 10, 5, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2), C.M, 0, -5.8, 0);
+    for (const k of [-1, 1]) add(hip, box(0.18, 1.0, 0.1), red, k * 0.45, -5.9, 1.22);
+    for (let i = 0; i < 3; i++) {
+      const a = i / 3 * Math.PI * 2;
+      add(hip, cyl(0.3, 0.45, 0.6), C.J, Math.cos(a) * 0.6, -7.0, Math.sin(a) * 0.6);
+      glows.push(add(hip, new THREE.CircleGeometry(0.42, 8), T, Math.cos(a) * 0.6, -7.32, Math.sin(a) * 0.6, PI2));
+    }
+    legs.push({ hip, knee: hip, foot: hip, glow: glows[glows.length - 1], side: s });
+  }
+  const torso = group(body, 0, 7.6, 0);
+  add(torso, box(1.8, 1.2, 1.5), C.J, 0, 0.2, 0);
+  add(torso, taperBox(3.6, 2.6, 2.6, { bx: 0.7, bz: 0.8 }), C.M, 0, 1.9, 0);
+  add(torso, taperBox(4.2, 1.2, 2.8, { tx: 0.75, tz: 0.7 }), C.M, 0, 3.6, 0);
+  for (const s of [-1, 1]) add(torso, box(0.9, 0.3, 0.1), red, s * 0.9, 1.7, 1.32);
+  const { head, eye } = buildHead(torso, lo.head, 1, C);
+  const arms = [];
+  for (const s of [-1, 1]) {
+    const sh = group(torso, s * 2.9, 3.4, 0);
+    const pd = add(sh, new THREE.SphereGeometry(1.8, 8, 6), C.M, s * 0.4, 0.3, 0);
+    pd.scale.set(1.1, 0.9, 1.3);
+    for (const [y, z, rz] of [[1.6, 0.6, 0.2], [1.5, -0.6, 0.3], [0.8, 0, 1.0], [0.9, -1.4, 0.8]]) add(sh, new THREE.ConeGeometry(0.25, 1.3, 5), C.Fr, s * (0.6 + rz), y, z, 0, 0, -s * rz);
+    add(sh, box(1.0, 2.6, 1.0), C.Fr, s * 0.4, -1.8, 0);
+    const elbow = group(sh, s * 0.4, -3.2, 0);
+    add(elbow, cyl(0.55, 0.55, 1.2), C.J, 0, 0, 0, 0, 0, PI2);
+    add(elbow, taperBox(1.7, 3.0, 1.8, { tx: 0.85 }), C.M, 0, -1.5, 0);
+    const w = weaponMesh('megacannon', C);
+    w.g.position.set(0, -3.0, 0.2);
+    elbow.add(w.g);
+    arms.push({ sh, elbow, side: s, muzzle: w.muzzle });
+  }
+  // Huge swept binder wings
+  const wings = [];
+  for (const s of [-1, 1]) {
+    const wg = group(torso, s * 1.4, 3.8, -1.8);
+    wg.rotation.set(-0.55, 0, -s * 0.8);
+    add(wg, taperBox(1.7, 11, 0.7, { tx: 0.25, tz: 0.5 }), C.M, 0, 5.5, 0);
+    add(wg, taperBox(0.7, 7.5, 0.8, { tx: 0.3 }), C.D, -s * 0.35, 4.5, -0.05);
+    for (const y of [2.5, 4.5, 6.5]) add(wg, new THREE.ConeGeometry(0.22, 1.1, 5), C.Fr, s * 0.9, y, 0, 0, 0, -s * 1.3);
+    wings.push(wg);
+  }
+  // Artillery battery on the back
+  add(torso, taperBox(3.2, 3.0, 2.0, { tz: 0.8 }), C.D, 0, 2.4, -2.0);
+  const sideMuzzles = [];
+  for (const s of [-1, 1]) {
+    const g = group(torso, s * 1.1, 4.3, -2.0);
+    add(g, box(1.4, 1.0, 1.6), C.J, 0, 0, 0);
+    for (let i = 0; i < 6; i++) add(g, box(0.3, 0.1, 0.3), glow(0xffb050), -0.4 + (i % 3) * 0.4, 0.52, -0.35 + Math.floor(i / 3) * 0.7);
+    for (let i = 0; i < 3; i++) sideMuzzles.push(group(g, -0.4 + i * 0.4, 0.8, 0));
+  }
+  const thrusters = [];
+  for (const s of [-1, 1]) {
+    add(torso, cyl(0.6, 0.8, 1.2), C.J, s * 1.0, 0.8, -2.8, 0.6);
+    thrusters.push(add(torso, new THREE.ConeGeometry(0.7, 3.4, 6, 1, true), T, s * 1.0, -0.2, -3.6, 0.6 + Math.PI));
+  }
+  const rig = { root, body, hips, torso, head, eye, legs, skirt: null, glows, legType: 'pods', arms, lowerArms: [], thrusters, wings,
+    muzzle: arms[1].muzzle, muzzles: [arms[1].muzzle, arms[0].muzzle], sideMuzzles, frame: lo.frame, loadout: lo, sig: loadoutSig(lo), meleeKey: 'crush', giant: true };
+  root.userData.rig = rig;
+  root.scale.setScalar(4);
+  return root;
+}
+
+// Backpack / mobility unit. Returns flame meshes that scale with thrust.
+function buildPack(torso, type, b, C, T) {
+  const thrusters = [];
+  const flame = (parent, r, len, x, y, z, rx) => { const f = add(parent, new THREE.ConeGeometry(r, len, 6, 1, true), T, x, y, z, rx + Math.PI); thrusters.push(f); return f; };
+  const trim = mat(0xe0b030);
+  if (type === 'boosters') {
+    // Tall twin booster pods rising behind the shoulders
+    add(torso, taperBox(2.4 * b, 2.4, 1.2, { tz: 0.8 }), C.D, 0, 2.2, -1.5 * b);
+    for (const s of [-1, 1]) {
+      const pod = group(torso, s * 1.45 * b, 4.2, -2.3 * b);
+      pod.rotation.set(-0.18, 0, -s * 0.08);
+      add(pod, taperBox(1.6, 6.2, 1.9, { tx: 0.8, tz: 0.75, bx: 0.9 }), C.M, 0, 0, 0);
+      add(pod, taperBox(1.3, 1.4, 1.95, { tx: 0.6 }), C.M, 0, 3.6, 0.1);
+      add(pod, box(1.66, 0.25, 1.96), trim, 0, -1.4, 0);
+      add(pod, box(0.12, 3.0, 0.5), trim, s * 0.82, 0.6, 0.4);
+      for (const k of [-1, 1]) add(pod, box(0.5, 0.6, 0.12), C.J, k * 0.4, 1.8, -0.96);
+      add(pod, cyl(0.62, 0.8, 0.9, 8), C.J, 0, -3.5, 0);
+      flame(pod, 0.7, 4.0, 0, -5.8, 0, 0);
+    }
+  } else if (type === 'wings') {
+    add(torso, taperBox(2.5 * b, 2.6, 1.4, { tz: 0.8 }), C.D, 0, 2.2, -1.55 * b);
+    for (const s of [-1, 1]) {
+      for (const [i, ang] of [[0, 0.55], [1, 1.05]]) {
+        const w = group(torso, s * 0.9, 3.0 - i * 0.6, -2.0 * b);
+        w.rotation.set(-0.35, 0, -s * ang);
+        add(w, taperBox(1.0, 5.2 - i, 0.25, { tx: 0.3 }), i ? C.D : C.M, 0, 2.6 - i * 0.5, 0);
+        add(w, box(0.08, 3.6 - i, 0.3), glow(0x7fd8ff), s * 0.42, 2.4 - i * 0.5, 0);
+      }
+      add(torso, cyl(0.42, 0.55, 1.1), C.J, s * 0.75, 1.0, -2.1 * b, 0.6);
+      flame(torso, 0.45, 2.4, s * 0.75, 0.15, -2.75 * b, 0.6);
+    }
+  } else if (type === 'jumpjets') {
+    add(torso, taperBox(2.2 * b, 2.2, 1.2, { tz: 0.8 }), C.D, 0, 2.3, -1.5 * b);
+    for (const s of [-1, 1]) {
+      add(torso, cyl(0.38, 0.5, 1.0), C.J, s * 0.7, 1.3, -2.0 * b, 0.6);
+      flame(torso, 0.4, 2.0, s * 0.7, 0.5, -2.6 * b, 0.6);
+      // Waist jump jets pointing straight down
+      add(torso, box(0.9, 1.6, 1.2), C.D, s * 1.9 * b, -0.6, -0.7);
+      add(torso, cyl(0.4, 0.5, 0.5), C.J, s * 1.9 * b, -1.6, -0.7);
+      flame(torso, 0.45, 2.6, s * 1.9 * b, -3.0, -0.7, 0);
+    }
+  } else if (type === 'verniers') {
+    add(torso, taperBox(2.5 * b, 2.6, 1.4, { tz: 0.8 }), C.D, 0, 2.2, -1.55 * b);
+    for (const s of [-1, 1]) {
+      add(torso, cyl(0.42, 0.55, 1.1), C.J, s * 0.75, 1.0, -2.1 * b, 0.6);
+      flame(torso, 0.45, 2.4, s * 0.75, 0.15, -2.75 * b, 0.6);
+      for (const [y, z, rx] of [[3.6, -1.9, -0.9], [2.8, -2.2, -1.6], [1.6, -1.8, 0.3]]) {
+        add(torso, cyl(0.2, 0.28, 0.5), C.J, s * 1.5 * b, y, z * b, rx);
+        flame(torso, 0.22, 1.2, s * 1.5 * b, y - 0.5 * Math.cos(rx), z * b - 0.5 * Math.sin(rx), rx);
+      }
+    }
+  } else {
+    add(torso, taperBox(2.5 * b, 2.6, 1.4, { tz: 0.8 }), C.D, 0, 2.2, -1.55 * b);
+    for (const s of [-1, 1]) {
+      add(torso, cyl(0.42, 0.55, 1.1), C.J, s * 0.75, 1.0, -2.1 * b, 0.6);
+      flame(torso, 0.45, 2.4, s * 0.75, 0.15, -2.75 * b, 0.6);
+    }
+  }
+  return thrusters;
+}
+
 // spec: frame key string or a loadout object
 export function buildMech(spec = 'strider') {
   const lo = typeof spec === 'string' ? defaultLoadout(spec) : sanitizeLoadout(spec);
@@ -214,9 +452,11 @@ export function buildMech(spec = 'strider') {
     E: glow(lo.eye ?? F.eye),
   };
   const T = glow(0x7fd8ff, 0.85);
+  if (lo.size === 'giant') return buildGiant(lo, F, C, T);
 
   const root = new THREE.Group();
   const body = group(root);
+  body.scale.set(F.prop[0], F.prop[1], F.prop[0]);
   const hips = group(body, 0, 7.0, 0);
 
   add(hips, taperBox(2.6 * b, 1.3, 1.8, { tx: 1.1, bx: 0.7 }), C.D);
@@ -224,8 +464,8 @@ export function buildMech(spec = 'strider') {
   add(hips, taperBox(1.6, 1.4, 0.5, { bx: 0.7 }), C.M, 0, -0.3, -1.0, 0.15);
   for (const s of [-1, 1]) add(hips, taperBox(0.45, 2.1, 1.9, { bz: 0.75 }), C.M, s * 1.6, -0.6, 0, 0, 0, s * 0.22);
 
-  const legs = [];
-  for (const s of [-1, 1]) {
+  const { legs, skirt, glows } = buildLegs(hips, lo.legs, b, C, T);
+  if (lo.legs === 'standard') for (const s of [-1, 1]) {
     const hip = group(hips, s * 1.15, -0.3, 0);
     add(hip, taperBox(1.3 * b, 2.9, 1.5 * b, { bx: 0.82, bz: 0.82 }), C.M, 0, -1.4, 0);
     add(hip, box(0.7, 2.6, 0.7), C.Fr, 0, -1.6, -0.6);
@@ -241,15 +481,11 @@ export function buildMech(spec = 'strider') {
     add(foot, taperBox(0.5, 0.55, 1.5, { tx: 0.4, tz: 0.3 }), C.M, 0, -0.25, -1.4 * b, 0.25);
     const fg = add(foot, new THREE.CircleGeometry(0.55, 8), T, 0, -0.62, 0.4, PI2);
     legs.push({ hip, knee, foot, glow: fg, side: s });
+    glows.push(fg);
   }
 
   const torso = group(body, 0, 7.6, 0);
-  add(torso, box(1.6, 1.0, 1.3), C.J, 0, 0.2, 0);
-  add(torso, taperBox(3.2 * b, 2.4, 2.2 * b, { bx: 0.68, bz: 0.8 }), C.M, 0, 1.8, 0);
-  add(torso, taperBox(3.8 * b, 1.1, 2.5 * b, { tx: 0.78, tz: 0.68 }), C.M, 0, 3.4, 0);
-  add(torso, taperBox(1.6, 1.6, 0.5, { tx: 0.7, bx: 0.85 }), C.D, 0, 2.0, 1.15 * b);
-  for (const s of [-1, 1]) add(torso, box(0.5, 0.9, 0.2), C.Fr, s * 1.0, 1.5, 1.15 * b);
-  add(torso, box(0.55, 0.12, 0.05), C.E, 0, 2.55, 1.42 * b);
+  buildBody(torso, lo.body, b, C);
 
   const { head, eye } = buildHead(torso, lo.head, b, C);
 
@@ -263,19 +499,13 @@ export function buildMech(spec = 'strider') {
     }
   }
 
-  // Backpack thrusters
-  add(torso, taperBox(2.5 * b, 2.6, 1.4, { tz: 0.8 }), C.D, 0, 2.2, -1.55 * b);
-  const thrusters = [];
-  for (const s of [-1, 1]) {
-    add(torso, cyl(0.42, 0.55, 1.1), C.J, s * 0.75, 1.0, -2.1 * b, 0.6);
-    thrusters.push(add(torso, new THREE.ConeGeometry(0.45, 2.4, 6, 1, true), T, s * 0.75, 0.15, -2.75 * b, 0.6 + Math.PI));
-  }
+  const thrusters = buildPack(torso, lo.mobility, b, C, T);
 
   const blades = lo.hands === 'blades';
   const melee = blades ? null : lo.melee;
   const arms = [
-    buildArm(torso, -1, { x: -2.35 * b, y: 3.0, z: 0, scale: 1, big: true, blade: blades, melee }, C, b),
-    buildArm(torso, 1, { x: 2.35 * b, y: 3.0, z: 0, scale: 1, big: true, blade: blades, weapon: lo.main }, C, b),
+    buildArm(torso, -1, { x: -2.35 * b, y: 3.0, z: 0, scale: 1, big: true, blade: blades, melee, type: lo.arms }, C, b),
+    buildArm(torso, 1, { x: 2.35 * b, y: 3.0, z: 0, scale: 1, big: true, blade: blades, weapon: lo.main, type: lo.arms }, C, b),
   ];
   const lowerArms = lo.arms === 'four' ? [
     buildArm(torso, -1, { x: -1.85 * b, y: 1.2, z: 0.4, scale: 0.78, big: false, blade: blades, melee: melee === 'pile' ? null : melee }, C, b),
@@ -284,7 +514,7 @@ export function buildMech(spec = 'strider') {
   const muzzles = [arms[1].muzzle, ...(lowerArms[1] ? [lowerArms[1].muzzle] : [])];
   const sideMuzzles = sideWeapons(torso, lo.side, b, C);
 
-  const rig = { root, body, hips, torso, head, eye, legs, arms, lowerArms, thrusters, muzzle: muzzles[0], muzzles, sideMuzzles,
+  const rig = { root, body, hips, torso, head, eye, legs, skirt, glows, legType: lo.legs, arms, lowerArms, thrusters, muzzle: muzzles[0], muzzles, sideMuzzles,
     frame: lo.frame, loadout: lo, sig: loadoutSig(lo), meleeKey: meleeKey(lo) };
   root.userData.rig = rig;
   return root;
@@ -313,25 +543,67 @@ export function animateMech(rig, s) {
   const k = Math.min(1, s.speed / 90);
   const lean = THREE.MathUtils.clamp(s.fwd / 120, -0.35, 0.6);
   const sw = Math.sin(s.phase);
-  if (!s.air) {
-    rig.legs.forEach((L, i) => {
-      const push = Math.max(0, i === 0 ? sw : -sw) * k;
-      const recover = Math.max(0, i === 0 ? -sw : sw) * k;
-      ease(L.hip.rotation, 'z', L.side * (0.06 + push * 0.42), a);
-      ease(L.hip.rotation, 'x', -0.15 + push * 0.5 - recover * 0.45, a);
-      ease(L.knee.rotation, 'x', 0.3 + recover * 0.9 + k * 0.2, a);
-      ease(L.foot.rotation, 'x', -(L.hip.rotation.x + L.knee.rotation.x) * 0.8, a);
+  const lt = rig.legType, quad = lt === 'quad';
+  if (lt === 'pods') {
+    rig.legs.forEach(L => {
+      ease(L.hip.rotation, 'x', 0.15 + lean * 0.5 + (s.air ? 0.3 : 0) + Math.sin(s.phase + (L.side > 0 ? Math.PI : 0)) * 0.06 * k, a);
+      ease(L.hip.rotation, 'z', L.side * 0.08 - s.side / 400, a);
     });
-    ease(rig.torso.rotation, 'x', 0.05 + lean * 0.55, a);
-    ease(rig.body.rotation, 'z', -sw * k * 0.12 - s.side / 300, a);
-    ease(rig.body.position, 'x', sw * k * 0.5, a);
-    ease(rig.hips.position, 'y', 7.0 - k * 0.6 - Math.abs(sw) * k * 0.2, a);
+    ease(rig.torso.rotation, 'x', 0.05 + lean * 0.3, a);
+    ease(rig.body.rotation, 'z', -s.side / 400, a);
+    ease(rig.body.position, 'x', 0, a);
+    ease(rig.hips.position, 'y', 7.2 + Math.sin(s.phase * 0.5) * 0.15, a);
+    ease(rig.body.rotation, 'x', s.air ? lean * 0.3 : 0, a);
+    for (const [i, w] of (rig.wings || []).entries()) ease(w.rotation, 'x', -0.55 - (s.air ? 0.25 : 0) - (s.boost ? 0.2 : 0), a);
+  } else if (rig.skirt) {
+    // Hover skirt: no legs, the skirt tilts with motion
+    ease(rig.skirt.rotation, 'x', lean * 0.3 + (s.air ? 0.15 : 0), a);
+    ease(rig.skirt.rotation, 'z', -s.side / 250, a);
+    ease(rig.torso.rotation, 'x', 0.05 + lean * 0.5, a);
+    ease(rig.body.rotation, 'z', -s.side / 300, a);
+    ease(rig.body.position, 'x', 0, a);
+    ease(rig.hips.position, 'y', 7.0 + Math.sin(s.phase * 0.7) * 0.2, a);
+    ease(rig.body.rotation, 'x', s.air ? lean * 0.4 - s.up / 250 : 0, a);
+  } else if (!s.air) {
+    rig.legs.forEach((L) => {
+      const sl = Math.sin(s.phase + (L.phaseOff || 0));
+      const push = Math.max(0, L.side < 0 ? sl : -sl) * k;
+      const recover = Math.max(0, L.side < 0 ? -sl : sl) * k;
+      if (quad) {
+        ease(L.hip.rotation, 'x', sl * 0.4 * k * (L.side < 0 ? 1 : -1), a);
+        ease(L.hip.rotation, 'z', L.side * recover * 0.3, a);
+        ease(L.knee.rotation, 'z', -L.side * recover * 0.25, a);
+      } else if (lt === 'hind') {
+        ease(L.hip.rotation, 'z', L.side * (0.06 + push * 0.4), a);
+        ease(L.hip.rotation, 'x', -0.1 + push * 0.45 - recover * 0.35, a);
+        ease(L.knee.rotation, 'x', recover * 0.5 + k * 0.1, a);
+        ease(L.ankle.rotation, 'x', -recover * 0.6 - k * 0.1, a);
+        ease(L.foot.rotation, 'x', -L.hip.rotation.x * 0.6, a);
+      } else {
+        ease(L.hip.rotation, 'z', L.side * (0.06 + push * 0.42), a);
+        ease(L.hip.rotation, 'x', -0.15 + push * 0.5 - recover * 0.45, a);
+        ease(L.knee.rotation, 'x', 0.3 + recover * 0.9 + k * 0.2, a);
+        ease(L.foot.rotation, 'x', -(L.hip.rotation.x + L.knee.rotation.x) * 0.8, a);
+      }
+    });
+    const q = quad ? 0.3 : 1;
+    ease(rig.torso.rotation, 'x', 0.05 + lean * 0.55 * q, a);
+    ease(rig.body.rotation, 'z', -sw * k * 0.12 * q - s.side / 300, a);
+    ease(rig.body.position, 'x', sw * k * 0.5 * q, a);
+    ease(rig.hips.position, 'y', 7.0 - k * 0.6 * q - Math.abs(sw) * k * 0.2 * q, a);
     ease(rig.body.rotation, 'x', 0, a);
   } else {
     rig.legs.forEach((L) => {
+      if (quad) {
+        ease(L.hip.rotation, 'x', (L.front ? -0.35 : 0.45) * (L.side < 0 ? 1 : -1), a);
+        ease(L.hip.rotation, 'z', L.side * 0.2, a);
+        ease(L.knee.rotation, 'z', -L.side * 0.3, a);
+        return;
+      }
       ease(L.hip.rotation, 'z', L.side * 0.1, a);
       ease(L.hip.rotation, 'x', 0.25 + lean * 0.7, a);
-      ease(L.knee.rotation, 'x', 0.7 + lean * 0.4, a);
+      ease(L.knee.rotation, 'x', lt === 'hind' ? 0.3 : 0.7 + lean * 0.4, a);
+      if (L.ankle) ease(L.ankle.rotation, 'x', -0.5, a);
       ease(L.foot.rotation, 'x', 0.5, a);
     });
     ease(rig.torso.rotation, 'x', lean * 0.5, a);
@@ -345,8 +617,11 @@ export function animateMech(rig, s) {
   const aim = s.aimPitch || 0;
   ease(ra.sh.rotation, 'x', -0.35 - aim * 0.6, a); ease(ra.sh.rotation, 'z', 0, a);
   ease(ra.elbow.rotation, 'x', -1.35, a);
+  if (rig.giant) { ease(la.sh.rotation, 'x', -0.35 - aim * 0.6, a); ease(la.sh.rotation, 'z', 0, a); ease(la.elbow.rotation, 'x', -1.35, a); }
+  else {
   ease(la.sh.rotation, 'x', s.air ? 0.4 : -0.1 + sw * k * 0.3, a); ease(la.sh.rotation, 'z', 0, a);
   ease(la.elbow.rotation, 'x', s.air ? -0.3 : -0.7, a);
+  }
   for (const L of rig.lowerArms) {
     ease(L.sh.rotation, 'x', L.side > 0 ? -0.2 - aim * 0.5 : -0.3, a);
     ease(L.sh.rotation, 'z', 0, a);
@@ -365,5 +640,5 @@ export function animateMech(rig, s) {
   ease(rig.head.rotation, 'x', -aim * 0.4, a);
   const t = 0.4 + (s.boost ? 1.4 : 0) + (s.air ? 0.4 : 0) + k * 0.4;
   for (const th of rig.thrusters) th.scale.set(1, t * (0.85 + Math.random() * 0.3), 1);
-  for (const L of rig.legs) L.glow.scale.setScalar(s.air ? 0.4 : 1 + Math.random() * 0.25);
+for (const g of rig.glows) g.scale.setScalar(rig.skirt ? 0.9 + Math.random() * 0.25 + (s.air ? 0.2 : 0) : s.air ? 0.4 : 1 + Math.random() * 0.25);
 }
