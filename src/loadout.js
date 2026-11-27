@@ -1,9 +1,9 @@
 // Mech customization: parts, weapons and their stats.
 
 export const FRAMES = {
-  strider: { name: 'STRIDER', desc: 'Balanced frame', main: 0x56663f, dark: 0x37432a, frame: 0x8d949a, joint: 0x272b2f, eye: 0xffb347, hp: 100, speed: 1, bulk: 1, prop: [1, 1], trim: 0xe0b030 },
+  strider: { name: 'STRIDER', desc: 'Balanced frame', main: 0x3b4047, dark: 0x25292e, frame: 0x8a9199, joint: 0x1a1d21, eye: 0x58e6ff, hp: 100, speed: 1, bulk: 1, prop: [1, 1], trim: 0xc9ced4 },
   wraith:  { name: 'WRAITH',  desc: 'Fast, light armor', main: 0x6555b4, dark: 0x25222f, frame: 0x9aa0b5, joint: 0x1a1922, eye: 0xff3b6b, hp: 85, speed: 1.12, bulk: 0.92, prop: [0.88, 1.1], trim: 0xd03a5a },
-  bastion: { name: 'BASTION', desc: 'Heavy, slower', main: 0x67665e, dark: 0x403f3a, frame: 0x86867f, joint: 0x24241f, eye: 0xff5a2a, hp: 125, speed: 0.9, bulk: 1.14, prop: [1.16, 0.94], trim: 0xe07030 },
+  bastion: { name: 'BASTION', desc: 'Heavy, slower', main: 0xb4b9bf, dark: 0x5b6168, frame: 0x7d848c, joint: 0x2a2d31, eye: 0xff5a2a, hp: 125, speed: 0.9, bulk: 1.14, prop: [1.16, 0.94], trim: 0xe07030 },
 };
 
 export const HEADS = {
@@ -34,6 +34,7 @@ export const LEGS = {
 
 export const MOBILITY = {
   standard: { name: 'STANDARD PACK', desc: 'Twin backpack thrusters' },
+  binders:  { name: 'SHIELD BINDERS', desc: 'Two big back shields: +20 armor, +10% flight time', hp: 20, fuel: 0.9, speed: 0.97 },
   boosters: { name: 'TWIN BOOSTERS', desc: 'Huge shoulder boosters: +25% boost speed, +45% flight time', boost: 1.25, fuel: 0.55, speed: 0.98 },
   wings:    { name: 'WING BINDERS', desc: '+18% flight speed, +25% flight time', air: 1.18, fuel: 0.75 },
   jumpjets: { name: 'JUMP JETS', desc: '+50% jump, quick boosts cost 40% less', jump: 1.5, qbCost: 0.6 },
@@ -80,8 +81,8 @@ export const MELEE = {
   blades: { name: 'ARM BLADES', desc: 'From blade hands', dmg: 17, cd: 0.32, range: 40, color: 0x7fffd8 },
 };
 
-export const COLORS = [0x56663f, 0x6555b4, 0x67665e, 0xd9ddd8, 0xa83232, 0x2f5fa8, 0x2a2c30, 0xd8782c, 0xb59c6a, 0x3f8a8c];
-export const ACCENTS = [0x37432a, 0x25222f, 0x403f3a, 0x8a929a, 0x5a1a1a, 0x1c2f55, 0x141518, 0x6b3a12, 0x5e4f31, 0xc9a23a];
+export const COLORS = [0x3b4047, 0xb4b9bf, 0x56663f, 0x6555b4, 0x67665e, 0xd9ddd8, 0xa83232, 0x2f5fa8, 0x2a2c30, 0xd8782c, 0xb59c6a, 0x3f8a8c];
+export const ACCENTS = [0x25292e, 0x5b6168, 0x37432a, 0x25222f, 0x403f3a, 0x8a929a, 0x5a1a1a, 0x1c2f55, 0x141518, 0x6b3a12, 0x5e4f31, 0xc9a23a];
 export const EYES = [0xffb347, 0xff3b6b, 0xff5a2a, 0x48f0ff, 0x6bff8a, 0xffffff];
 
 export function defaultLoadout(frame = 'strider') {
@@ -116,7 +117,7 @@ export function loadoutStats(lo) {
   const mk = meleeKey(lo), base = MELEE[mk];
   const melee = { ...base, dmg: Math.round(base.dmg * (A.meleeDmg || 1)), range: base.range + (A.meleeRange || 0), cd: base.cd * (A.meleeCd || 1) };
   return {
-    hp: F.hp + A.hp + Bo.hp + Lg.hp,
+    hp: F.hp + A.hp + Bo.hp + Lg.hp + (Mo.hp || 0),
     speed: F.speed * A.speed * Bo.speed * Lg.speed * (Mo.speed || 1) * (MAIN[lo.main].speed || 1) * (SIDE[lo.side].speed || 1),
     jump: Lg.jump * (Mo.jump || 1), air: Lg.air * (Mo.air || 1), regen: Bo.regen || 1, drain: Mo.fuel || 1, g: 1, giant: false,
     boost: Mo.boost || 1, qbCost: Mo.qbCost || 1, qbCd: Mo.qbCd || 1,

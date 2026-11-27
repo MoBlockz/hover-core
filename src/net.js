@@ -65,7 +65,7 @@ export class Net {
         const conn = this.conn = peer.connect(PREFIX + code, { reliable: true, serialization: 'json' });
         conn.on('open', () => { clearTimeout(to); this.id = peer.id; resolve(); });
         conn.on('data', d => {
-          if (d.t === 'w') this.h.onWorld?.(d.p.filter(s => s.id !== this.id));
+          if (d.t === 'w') this.h.onWorld?.(d.p.filter(s => s.id !== this.id), d.m);
           else if (d.t === 'e') this.h.onEvent?.(d.e);
           else if (d.t === 'full') fail('Room is full.');
         });
@@ -94,7 +94,7 @@ export class Net {
   _broadcastWorld() {
     const list = [...this.states.values()];
     if (this.myState) list.push({ ...this.myState, id: 'H' });
-    for (const c of this.conns.values()) if (c.open) c.send({ t: 'w', p: list });
+    for (const c of this.conns.values()) if (c.open) c.send({ t: 'w', p: list, m: this.map });
     this.h.onWorld?.([...this.states.values()]);
   }
 

@@ -147,3 +147,8 @@ details input[type=range] { flex: 1; }
 .sw.sel { border-color: #ffb347; box-shadow: 0 0 0 2px #ffb347; }
 #viewBtn { width: auto; min-width: 38px; padding: 0 6px; white-space: nowrap; font-size: 14px; }
 #bFire.empty { opacity: .4; border-color: #775; }
+
+.maps { display: flex; gap: 6px; align-items: center; }
+.maps span { font-size: 11px; letter-spacing: 3px; color: #6fb4c8; width: 40px; }
+.maps button { flex: 1; background: #0a1a26; border: 1px solid #2c5868; color: #9fc7d6; font: inherit; letter-spacing: 3px; padding: 9px; cursor: pointer; }
+.maps button.sel { border-color: #ffb347; color: #ffe2b0; box-shadow: 0 0 0 1px #ffb347 inset; background: #2a1d0a; }

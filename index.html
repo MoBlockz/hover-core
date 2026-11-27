@@ -55,7 +55,8 @@
       <div class="play">
         <button id="btnResume" class="big pausedOnly">RESUME</button>
         <button id="btnLeave" class="pausedOnly">LEAVE MATCH</button>
-        <button id="btnTrain" class="big menuOnly">TRAINING ARENA</button>
+        <div class="maps menuOnly"><span>MAP</span><button id="mapArena" data-map="arena">ARENA</button><button id="mapSpace" data-map="space">SPACE</button></div>
+        <button id="btnTrain" class="big menuOnly">TRAINING</button>
         <div class="pvp menuOnly">
           <button id="btnHost">HOST PvP ROOM</button>
           <input id="roomCode" maxlength="4" placeholder="CODE" autocomplete="off">
@@ -70,6 +71,7 @@
         <label><input id="invert" type="checkbox"> Invert look Y</label>
         <label><input id="autoLevel" type="checkbox"> Auto-level horizon in flight</label>
         <label><input id="spar" type="checkbox"> Sparring AI in training</label>
+        <label>Graphics <select id="gfx"><option value="high">High (glow + reflections)</option><option value="low">Low (faster)</option></select></label>
         <p id="controlsHelp"></p>
       </details>
     </div>
@@ -82,7 +84,7 @@
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js"></script>
-  <script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js"}}</script>
+  <script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"}}</script>
   <script type="module" src="src/main.js"></script>
 </body>
 </html>

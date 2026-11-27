@@ -1,5 +1,10 @@
 import * as THREE from 'three';
-import { buildArena, groundAt, resolveCollisions, rayArena, pointInArena, ARENA_HALF, CEILING } from './arena.js';
+import { buildArena, buildSpace, setFloor, groundAt, resolveCollisions, rayArena, pointInArena, ARENA_HALF, CEILING } from './arena.js';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { buildMech, animateMech, FRAMES, glow } from './mech.js';
 import { Particles, Tracers, Flashes, SpeedLines } from './fx.js';
 import { Sfx } from './audio.js';
@@ -25,7 +30,7 @@ const T = {
 };
 
 // ---------- Settings ----------
-const settings = Object.assign({ sens: 1, invert: false, autoLevel: true, spar: true, frame: 'strider', view: 'cockpit', aim: 1, name: '', muted: false },
+const settings = Object.assign({ sens: 1, invert: false, autoLevel: true, spar: true, frame: 'strider', aim: 1, map: 'arena', gfx: 'high', name: '', muted: false },
   JSON.parse(localStorage.getItem('hovercore') || '{}'));
 const saveSettings = () => localStorage.setItem('hovercore', JSON.stringify(settings));
 settings.loadout = sanitizeLoadout({ ...defaultLoadout(settings.frame), ...(settings.loadout || {}), frame: settings.frame });
@@ -38,20 +43,51 @@ function setLoadout(patch) {
   saveSettings();
   updatePreview();
 }
-const TP_TIME = 10, TP_COOLDOWN = 0, LOCK_COOLDOWN = 7;
+const TP_TIME = Infinity, TP_COOLDOWN = 0, LOCK_COOLDOWN = 7; // third person stays on until toggled off
 
 // ---------- Renderer / scene ----------
 const renderer = new THREE.WebGLRenderer({ antialias: !isTouch, powerPreference: 'high-performance' });
 renderer.setPixelRatio(Math.min(devicePixelRatio, isTouch ? 1.5 : 2));
 renderer.setSize(innerWidth, innerHeight);
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.05;
 $('game').appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(BASE_FOV, innerWidth / innerHeight, 0.05, 6000);
 camera.userData.baseFov = BASE_FOV;
 scene.add(camera);
-const arena = buildArena(scene);
+// Shiny metal: image-based reflections from a studio environment
+const pmrem = new THREE.PMREMGenerator(renderer);
+scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+scene.environmentIntensity = 0.55;
+// Glow (bloom) on lights, eyes and thrusters
+const composer = new EffectComposer(renderer);
+composer.addPass(new RenderPass(scene, camera));
+const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth / 2, innerHeight / 2), 0.55, 0.4, 1.25);
+composer.addPass(bloom);
+composer.addPass(new OutputPass());
+
+// Maps: each lives in its own group; only the active one is visible.
+const maps = {};
+{
+  const ga = new THREE.Group(); scene.add(ga);
+  maps.arena = { name: 'arena', root: ga, ...buildArena(ga), fog: new THREE.Fog(0x52687a, 350, 2200), floor: true, env: 0.55 };
+  const gs = new THREE.Group(); gs.visible = false; scene.add(gs);
+  maps.space = { name: 'space', root: gs, ...buildSpace(gs), fog: new THREE.Fog(0x03040a, 2600, 7000), floor: false, env: 0.35 };
+}
+let arena = maps.arena, mapName = 'arena';
+const isSpace = () => mapName === 'space';
+function setMap(name) {
+  if (!maps[name]) name = 'arena';
+  mapName = name; arena = maps[name];
+  for (const k in maps) maps[k].root.visible = k === name;
+  scene.fog = arena.fog;
+  scene.environmentIntensity = arena.env;
+  setFloor(arena.floor);
+  if (typeof placeCrates === 'function') placeCrates();
+  if (net && net.isHost) net.map = name;
+}
 const cockpit = new Cockpit(camera);
 const particles = new Particles(scene);
 const tracers = new Tracers(scene);
@@ -63,6 +99,9 @@ sfx.setMuted(settings.muted);
 const hud = $('hudCanvas'), hg = hud.getContext('2d');
 function resize() {
   renderer.setSize(innerWidth, innerHeight);
+  composer.setPixelRatio(renderer.getPixelRatio());
+  composer.setSize(innerWidth, innerHeight);
+  bloom.resolution.set(innerWidth / 2, innerHeight / 2);
   camera.aspect = innerWidth / innerHeight;
   camera.updateProjectionMatrix();
   cockpit.layout();
@@ -87,6 +126,7 @@ function makeShadow(size = 9) {
   return m;
 }
 function placeShadow(sh, x, feetY, z, visible = true) {
+  if (!arena.floor) { sh.visible = false; return; }
   const g = groundAt(arena.colliders, x, z, feetY + 0.5, 0);
   const h = feetY - g;
   sh.visible = visible && h < 300;
@@ -225,7 +265,7 @@ function toggleView() {
   if (state !== 'playing') return;
   if (P.tpT > 0) { P.tpT = 0; P.tpCd = TP_COOLDOWN; showMsg('COCKPIT VIEW', 1); return; }
   if (P.tpCd > 0) { showMsg(`3RD-PERSON RECHARGING · ${Math.ceil(P.tpCd)}s`, 1, 'bad'); sfx.beep(); return; }
-  P.tpT = TP_TIME; showMsg('THIRD-PERSON VIEW · 10s', 1);
+  P.tpT = TP_TIME; showMsg('THIRD-PERSON VIEW · TAP 👁 TO GO BACK', 1.4);
 }
 function tickView(dt) {
   if (P.tpT > 0) {
@@ -236,7 +276,7 @@ function tickView(dt) {
     if (P.tpCd <= 0) { P.tpCd = 0; showMsg('3RD-PERSON READY', 1, 'good'); }
   }
   const b = $('viewBtn');
-  b.textContent = P.tpT > 0 ? '👁 ' + Math.ceil(P.tpT) : P.tpCd > 0 ? Math.ceil(P.tpCd) + 's' : '👁';
+  b.textContent = P.tpT > 0 ? (Number.isFinite(P.tpT) ? '👁 ' + Math.ceil(P.tpT) : '👁 3P') : P.tpCd > 0 ? Math.ceil(P.tpCd) + 's' : '👁';
   b.classList.toggle('active', P.tpT > 0);
   b.classList.toggle('cool', P.tpCd > 0);
 }
@@ -317,7 +357,7 @@ function applyLook(dt) {
     // Free 6-DOF look while flying: rotate about the cockpit's own axes, no pitch limit.
     P.q.multiply(_q.setFromAxisAngle(AY, -dx)).multiply(_q2.setFromAxisAngle(AX, -dy)).normalize();
     P.lookIdle = Math.abs(dy) > 0.0005 ? 0 : P.lookIdle + dt;
-    if (settings.autoLevel && P.lookIdle > 0.6) {
+    if (settings.autoLevel && !isSpace() && P.lookIdle > 0.6) {
       const f = forwardOf(P.q), r = V(1, 0, 0).applyQuaternion(P.q), u = V(0, 1, 0).applyQuaternion(P.q);
       const w = clamp(1 - f.y * f.y * 1.3, 0, 1);
       const phi = Math.atan2(r.y, u.y);
@@ -392,22 +432,29 @@ Object.assign(ai, { pos: V(0, EYE + HOVER, -520), mode: 'ground', yaw: 0, stride
 targets.push(ai);
 
 // Ammo supply crates (refill reserve + side weapon). Each client has its own.
-const crates = [[0, 150], [0, -150], [150, 0], [-150, 0], [380, 380], [-380, -380], [380, -380], [-380, 380]].map(([x, z]) => {
+const crates = Array.from({ length: 8 }, () => {
   const g = new THREE.Group();
   g.add(new THREE.Mesh(new THREE.BoxGeometry(5, 4, 5), new THREE.MeshStandardMaterial({ color: 0x4d5a3a, flatShading: true })));
   for (const y of [-1.2, 1.2]) { const st = new THREE.Mesh(new THREE.BoxGeometry(5.2, 0.4, 5.2), glow(0x6bff8a)); st.position.y = y; g.add(st); }
-  const y = groundAt(arena.colliders, x, z, 200, 0) + 3.5;
-  g.position.set(x, y, z);
   scene.add(g);
-  return { g, x, y, z, respawnT: 0 };
+  return { g, x: 0, y: 0, z: 0, respawnT: 0 };
 });
+function placeCrates() {
+  crates.forEach((c, i) => {
+    const [x, y, z] = arena.crateSpots[i % arena.crateSpots.length];
+    c.x = x; c.z = z; c.y = y == null ? groundAt(arena.colliders, x, z, 200, 0) + 3.5 : y;
+    c.g.position.set(c.x, c.y, c.z); c.respawnT = 0;
+  });
+}
+placeCrates();
 function updateCrates(dt, time) {
   for (const c of crates) {
     if (c.respawnT > 0) { c.respawnT -= dt; c.g.visible = c.respawnT <= 0; continue; }
     c.g.visible = true;
     c.g.rotation.y += dt * 1.2; c.g.position.y = c.y + Math.sin(time * 2 + c.x) * 0.6;
     if (state !== 'playing' || !P.alive) continue;
-    if (Math.hypot(P.pos.x - c.x, P.pos.z - c.z) < 6.5 + PR && Math.abs(P.pos.y - PE - c.y) < 12 * PG) {
+    const pc = playerCenter();
+    if (Math.hypot(pc.x - c.x, pc.z - c.z) < 6.5 + PR && Math.abs(pc.y - c.y) < 10 * PG) {
       const ws = W();
       P.reserve = ws.main.reserve; P.ammo = ws.main.mag; P.reloadT = 0; P.msl = ws.side.count;
       c.respawnT = 25; c.g.visible = false;
@@ -421,7 +468,7 @@ function setTargetVisible(t, v) { t.obj.visible = v; if (t.shadow) t.shadow.visi
 function updateTargets(dt, time) {
   const training = mode === 'training';
   for (const t of targets) {
-    const enabled = training && (t.kind !== 'ai' || settings.spar);
+    const enabled = training && (t.kind !== 'ai' || settings.spar) && !(t.kind === 'dummy' && isSpace());
     if (!enabled) { setTargetVisible(t, false); continue; }
     if (!t.alive) {
       setTargetVisible(t, false);
@@ -454,7 +501,7 @@ function respawnTarget(t) {
   t.alive = true; t.hp = t.maxHp;
   if (t.kind === 'ai') {
     const sp = farthestSpawn([P.pos]);
-    t.pos.set(sp.x, EYE + HOVER, sp.z); t.vel.set(0, 0, 0); t.mode = 'ground';
+    t.pos.set(sp.x, sp.y ?? EYE + HOVER, sp.z); t.vel.set(0, 0, 0); t.mode = isSpace() ? 'air' : 'ground';
   }
 }
 
@@ -462,11 +509,43 @@ function farthestSpawn(avoid) {
   let best = arena.spawns[0], bd = -1;
   for (const s of arena.spawns) {
     let d = Infinity;
-    for (const a of avoid) d = Math.min(d, Math.hypot(a.x - s.x, a.z - s.z));
+    for (const a of avoid) d = Math.min(d, Math.hypot(a.x - s.x, (a.y ?? 0) - (s.y ?? a.y ?? 0), a.z - s.z));
     d += Math.random() * 60;
     if (d > bd) { bd = d; best = s; }
   }
   return best;
+}
+
+// Keep a body inside the map: square arena walls, or a sphere in space.
+function keepInBounds(pos, vel, r) {
+  if (isSpace()) {
+    const L = pos.length(), R = arena.radius;
+    if (L > R) {
+      const n = pos.clone().divideScalar(L);
+      pos.copy(n).multiplyScalar(R);
+      const vn = vel.dot(n);
+      if (vn > 0) vel.addScaledVector(n, -vn * 1.5);
+      return true;
+    }
+    return false;
+  }
+  pos.x = clamp(pos.x, -ARENA_HALF + r, ARENA_HALF - r);
+  pos.z = clamp(pos.z, -ARENA_HALF + r, ARENA_HALF - r);
+  if (pos.y > CEILING) { pos.y = CEILING; vel.y = Math.min(0, vel.y); }
+  return false;
+}
+// Sparring AI in zero-g: orbit the player on a drifting 3D axis.
+function spaceAI(a, toP, dist, dt) {
+  a.mode = 'air'; a.airT = 1;
+  const dir = toP.clone().divideScalar(dist || 1);
+  if (!a.axis || Math.random() < dt * 0.25) a.axis = V(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).normalize();
+  const tan = V().crossVectors(dir, a.axis).normalize().multiplyScalar(a.orbitDir);
+  const wish = tan.addScaledVector(dir, clamp((dist - a.wantDist) / a.wantDist, -1, 1) * 1.3).normalize();
+  a.vel.addScaledVector(wish, 85 * dt);
+  a.vel.y *= Math.exp(-0.6 * dt);
+  const s = a.vel.length();
+  if (s > 110) a.vel.multiplyScalar(110 / s);
+  a.phase += dt;
 }
 
 // ---------- AI ----------
@@ -488,7 +567,8 @@ function updateAI(a, dt) {
   const tangent = V(-flat.z, 0, flat.x).multiplyScalar(a.orbitDir);
   const wish = tangent.addScaledVector(flat, clamp((fd - a.wantDist) / a.wantDist, -1, 1) * 1.2).normalize();
   const sp = Math.hypot(a.vel.x, a.vel.z);
-  if (a.mode === 'ground') {
+  if (isSpace()) spaceAI(a, toP, dist, dt);
+  else if (a.mode === 'ground') {
     a.strideT -= dt;
     if (a.strideT <= 0) {
       a.strideT = T.stridePeriod * 1.1; a.side *= -1;
@@ -520,9 +600,8 @@ function updateAI(a, dt) {
   a.vel.x *= drag; a.vel.z *= drag;
   const before = a.pos.clone();
   a.pos.addScaledVector(a.vel, dt);
-  a.pos.x = clamp(a.pos.x, -ARENA_HALF + 10, ARENA_HALF - 10); a.pos.z = clamp(a.pos.z, -ARENA_HALF + 10, ARENA_HALF - 10);
-  a.pos.y = Math.min(a.pos.y, CEILING);
-  if (resolveCollisions(arena.colliders, a.pos, EYE, RAD, HGT, a.vel) && a.mode === 'air' && a.airT <= 0) a.mode = 'ground';
+  keepInBounds(a.pos, a.vel, 10);
+  if (resolveCollisions(arena.colliders, a.pos, EYE, RAD, HGT, a.vel) && a.mode === 'air' && a.airT <= 0 && !isSpace()) a.mode = 'ground';
   if (a.pos.distanceTo(before) < hs * dt * 0.4 && hs > 20) { a.stuckT += dt; if (a.stuckT > 0.3) { a.orbitDir *= -1; a.mode = 'air'; a.vel.y = 45; a.airT = 1.5; a.altTarget = 60; a.stuckT = 0; } } else a.stuckT = 0;
 
   a.yaw = Math.atan2(toP.x, toP.z);
@@ -962,9 +1041,15 @@ function die(from) {
 }
 function respawn() {
   const avoid = mode === 'pvp' ? [...remotes.values()].map(r => r.pos) : (settings.spar ? [ai.pos] : []);
-  const sp = avoid.length ? farthestSpawn(avoid) : mode === 'pvp' ? arena.spawns[Math.floor(Math.random() * arena.spawns.length)] : arena.spawns[0];
-  P.pos.set(sp.x, PE + HOVER, sp.z); P.vel.set(0, 0, 0);
+  const sp = avoid.length ? farthestSpawn(avoid) : (mode === 'pvp' || isSpace()) ? arena.spawns[Math.floor(Math.random() * arena.spawns.length)] : arena.spawns[0];
+  P.pos.set(sp.x, sp.y ?? PE + HOVER, sp.z); P.vel.set(0, 0, 0);
   P.yaw = sp.yaw; P.pitch = 0; P.mode = 'ground'; groundQuat(P.viewQ);
+  if (isSpace()) {
+    // Spawn floating, facing the station
+    P.mode = 'air';
+    P.q.setFromRotationMatrix(new THREE.Matrix4().lookAt(P.pos, V(0, 0, 0), V(0, 1, 0)));
+    P.viewQ.copy(P.q);
+  }
   P.hp = P.maxHp; P.energy = 100; P.overheat = false; P.alive = true;
   P.ammo = W().main.mag; P.reserve = W().main.reserve; P.reloadT = 0; P.msl = W().side.count; P.invuln = 2; P.lunge = null;
   $('dead').classList.remove('show');
@@ -1057,13 +1142,16 @@ function updatePlayer(dt, time) {
     P.boosting = wantSprint && thrust.length() > 0.1;
     const acc = (P.boosting ? T.airBoostAccel * bs : T.airAccel) * fs * W().air * (P.overheat ? 0.2 : 1);
     P.vel.addScaledVector(thrust, acc * dt);
-    P.vel.y -= (P.overheat ? 30 : thrust.length() > 0.1 ? 3 : 12) * dt;
-    if (P.boosting && fwdIn > 0 && fy < -0.25) P.vel.y += fy * 45 * dt; // dive assist
+    if (!isSpace()) {
+      P.vel.y -= (P.overheat ? 30 : thrust.length() > 0.1 ? 3 : 12) * dt;
+      if (P.boosting && fwdIn > 0 && fy < -0.25) P.vel.y += fy * 45 * dt; // dive assist
+    }
     P.vel.multiplyScalar(Math.exp(-0.45 * dt));
     const max = (P.boosting ? T.airBoostMax * bs : T.airMax) * fs * W().air, s = P.vel.length();
     if (s > max && !P.lunge) P.vel.multiplyScalar(Math.exp(-dt * 2.6 * (s - max) / max));
     // Flight always burns fuel; boosting/climbing burns much more.
-    P.energy -= dt * (1.5 + (P.boosting ? 14 : 0) + (input.riseHeld ? 4 : 0)) * W().drain;
+    if (isSpace() && !P.boosting && !input.riseHeld) P.energy += dt * 5 * W().regen; // drifting in zero-g recharges
+    else P.energy -= dt * (1.5 + (P.boosting ? 14 : 0) + (input.riseHeld ? 4 : 0)) * W().drain;
     P.phase += dt;
     if (P.boosting) {
       const back = forwardOf(P.q).multiplyScalar(-1);
@@ -1103,12 +1191,10 @@ function updatePlayer(dt, time) {
     P.pos.addScaledVector(P.vel, dt / steps);
     if (resolveCollisions(arena.colliders, P.pos, PE, PR, PH, P.vel)) landed = true;
   }
-  P.pos.x = clamp(P.pos.x, -ARENA_HALF + PR, ARENA_HALF - PR);
-  P.pos.z = clamp(P.pos.z, -ARENA_HALF + PR, ARENA_HALF - PR);
-  if (P.pos.y > CEILING) { P.pos.y = CEILING; P.vel.y = Math.min(0, P.vel.y); }
+  if (keepInBounds(P.pos, P.vel, PR) && (P.edgeT = (P.edgeT || 0) - dt) <= 0) { P.edgeT = 2; showMsg('EDGE OF THE BATTLE ZONE', 1.2, 'bad'); }
   const feet = P.pos.y - PE;
-  if (feet < 0) { P.pos.y = PE; if (P.vel.y < 0) P.vel.y = 0; landed = true; }
-  if (P.mode === 'air') {
+  if (arena.floor && feet < 0) { P.pos.y = PE; if (P.vel.y < 0) P.vel.y = 0; landed = true; }
+  if (P.mode === 'air' && arena.floor) {
     const g = groundAt(arena.colliders, P.pos.x, P.pos.z, feet, PR * 0.6, 4 * PG);
     if ((landed || feet <= g + HOVER + 0.4) && P.vel.y <= 2 && !input.riseHeld) {
       // Boost-dive into the ground: convert the drop into skating speed
@@ -1173,7 +1259,7 @@ function updateCamera(dt, time) {
     const hitD = rayArena(arena.colliders, _ray, L + 2);
     camThird = Math.min(L, hitD - 2.5);
     camera.position.copy(pivot).addScaledVector(back, Math.max(3, camThird) / L);
-    if (camera.position.y < 1.5) camera.position.y = 1.5;
+    if (arena.floor && camera.position.y < 1.5) camera.position.y = 1.5;
   } else if (P.mode === 'ground') camera.position.y += Math.sin(P.phase * 2) * 0.12 * clamp(sp / 80, 0, 1);
   poseOwnMech(dt, tp);
   camera.position.add(V(Math.sin(shakeT * 1.3) * s, Math.sin(shakeT * 1.7 + 1) * s, Math.sin(shakeT * 1.1 + 2) * s).applyQuaternion(P.viewQ));
@@ -1200,7 +1286,12 @@ function nameOf(id) { if (net && id === net.id) return myName(); if (id === 'ai'
 
 function makeNet() {
   return new Net({
-    onWorld(list) {
+    onWorld(list, m) {
+      if (!net.isHost && m && maps[m] && m !== mapName) {
+        setMap(m); respawn();
+        $('modeTag').textContent = 'PvP ROOM ' + net.code + ' · ' + m.toUpperCase();
+        showMsg(m === 'space' ? 'SPACE BATTLE · NO GRAVITY' : 'ARENA BATTLE', 2);
+      }
       const seen = new Set();
       for (const s of list) {
         if (!s || !s.id || !Array.isArray(s.p)) continue;
@@ -1300,7 +1391,8 @@ async function startPvP(host) {
     notice(err.message || String(err)); net.close(); net = null; return;
   }
   mode = 'pvp';
-  $('modeTag').textContent = 'PvP ROOM ' + code;
+  if (host) net.map = settings.map;
+  $('modeTag').textContent = 'PvP ROOM ' + code + (host ? ' · ' + settings.map.toUpperCase() : '');
   begin();
   showMsg(host ? `ROOM ${code} — SHARE THIS CODE` : `JOINED ROOM ${code}`, 4);
 }
@@ -1475,18 +1567,19 @@ function applyFrameStats() {
 }
 function begin() {
   sfx.start();
+  setMap(mode === 'pvp' && net && !net.isHost ? mapName : settings.map);
   applyFrameStats();
   rebuildOwnMech();
   P.tpT = 0; P.tpCd = 0;
   respawn();
   P.kills = 0; P.deaths = 0;
   for (const t of targets) { t.alive = true; t.hp = t.maxHp; }
-  if (mode === 'training') { respawnTarget(ai); $('modeTag').textContent = 'TRAINING ARENA'; }
+  if (mode === 'training') { respawnTarget(ai); $('modeTag').textContent = isSpace() ? 'TRAINING · SPACE' : 'TRAINING ARENA'; }
   resume();
   if (mode === 'training') {
-    const tips = isTouch
-      ? ['LEFT THUMB: MOVE · RIGHT: LOOK', 'PUSH STICK TO EDGE OR TAP BOOST TO SKATE-SPRINT', 'HOLD RISE TO FLY — LOOK ANYWHERE', 'QB = INSTANT DASH · ⚔ = CLOSE-RANGE LUNGE', '👁 = THIRD PERSON FOR 10s']
-      : ['WASD MOVE · MOUSE LOOK', 'HOLD SHIFT TO SKATE-SPRINT', 'HOLD SPACE TO FLY — LOOK ANYWHERE', 'Q = QUICK BOOST · E / RMB = SIDE WEAPON', 'F / MIDDLE CLICK = CLOSE-RANGE LUNGE · V = 3RD PERSON 10s'];
+    const tips = isSpace() ? ['ZERO GRAVITY · FLY IN ANY DIRECTION', 'RISE / DIVE MOVE UP AND DOWN FROM YOUR VIEW', 'STOP BOOSTING TO DRIFT AND RECHARGE'] : isTouch
+      ? ['LEFT THUMB: MOVE · RIGHT: LOOK', 'PUSH STICK TO EDGE OR TAP BOOST TO SKATE-SPRINT', 'HOLD RISE TO FLY — LOOK ANYWHERE', 'QB = INSTANT DASH · ⚔ = CLOSE-RANGE LUNGE', '👁 = THIRD PERSON ON / OFF']
+      : ['WASD MOVE · MOUSE LOOK', 'HOLD SHIFT TO SKATE-SPRINT', 'HOLD SPACE TO FLY — LOOK ANYWHERE', 'Q = QUICK BOOST · E / RMB = SIDE WEAPON', 'F / MIDDLE CLICK = CLOSE-RANGE LUNGE · V = 3RD PERSON ON / OFF'];
     tips.forEach((t, i) => setTimeout(() => state === 'playing' && showMsg(t, 2.6), 400 + i * 3000));
   }
 }
@@ -1512,10 +1605,15 @@ $('sens').value = settings.sens; $('sens').oninput = e => { settings.sens = +e.t
 $('invert').checked = settings.invert; $('invert').onchange = e => { settings.invert = e.target.checked; saveSettings(); };
 $('autoLevel').checked = settings.autoLevel; $('autoLevel').onchange = e => { settings.autoLevel = e.target.checked; saveSettings(); };
 $('aim').value = settings.aim; $('aim').oninput = e => { settings.aim = +e.target.value; saveSettings(); };
+function showMapButtons() { for (const b of document.querySelectorAll('.maps button')) b.classList.toggle('sel', b.dataset.map === settings.map); }
+for (const b of document.querySelectorAll('.maps button')) b.onclick = () => { settings.map = b.dataset.map; saveSettings(); setMap(settings.map); showMapButtons(); };
+showMapButtons();
+setMap(settings.map);
+$('gfx').value = settings.gfx; $('gfx').onchange = e => { settings.gfx = e.target.value; saveSettings(); };
 $('spar').checked = settings.spar; $('spar').onchange = e => { settings.spar = e.target.checked; saveSettings(); };
 $('controlsHelp').innerHTML = isTouch
-  ? 'Left thumb: move (push to the edge to skate-sprint) · Right thumb: look · FIRE can be dragged to aim · RISE to fly · While boosting you fly where you look: look down to dive · ⚔ close-range lunge · 👁 third person for 10s (10s cooldown)'
-  : 'WASD move · Mouse look · Shift skate-sprint / air boost · Space rise / fly · Ctrl or C dive · V third person (10s, 10s cooldown) · Q quick boost · LMB fire · E / RMB side weapon · F / MMB close-range · R reset · M mute';
+  ? 'Left thumb: move (push to the edge to skate-sprint) · Right thumb: look · FIRE can be dragged to aim · RISE to fly · While boosting you fly where you look: look down to dive · ⚔ close-range lunge · 👁 third person on/off · SPACE map: no gravity, fly in any direction'
+  : 'WASD move · Mouse look · Shift skate-sprint / air boost · Space rise / fly · Ctrl or C dive · V third person on/off · Q quick boost · LMB fire · E / RMB side weapon · F / MMB close-range · R reset · M mute';
 buildFramePicker();
 
 const HANGAR = [
@@ -1633,8 +1731,8 @@ if ($('menu').classList.contains('hangar') && (preview.demoT -= dt) <= 0) { prev
   flashes.update(dt);
   speedLines.update(dt, camera.position, state === 'playing' ? P.vel : V());
   drawHUD(dt);
-  renderer.render(scene, camera);
+  if (settings.gfx === 'high') composer.render(); else renderer.render(scene, camera);
 }
 frame();
 
-window.__hover = { P, input, settings, T, targets, remotes, W, setLoadout, buildMech, scene, get state() { return state; } };
+window.__hover = { P, input, settings, setMap, get map() { return mapName; }, T, targets, remotes, W, setLoadout, buildMech, scene, get state() { return state; } };

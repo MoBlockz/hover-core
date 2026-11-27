@@ -5,14 +5,50 @@ import { FRAMES, MELEE, defaultLoadout, sanitizeLoadout, loadoutSig, meleeKey } 
 export { FRAMES };
 
 const mats = new Map();
-function mat(color) {
-  if (!mats.has(color)) mats.set(color, new THREE.MeshStandardMaterial({ color, flatShading: true, roughness: 0.6, metalness: 0.35 }));
-  return mats.get(color);
+function mat(color, rough = 0.42, metal = 0.6) {
+  const k = color + ':' + rough + ':' + metal;
+  if (!mats.has(k)) mats.set(k, new THREE.MeshStandardMaterial({ color, flatShading: true, roughness: rough, metalness: metal }));
+  return mats.get(k);
+}
+
+// Painted markings (unit number, emblem, caution stripes)
+const decals = {};
+function decalMat(kind) {
+  if (decals[kind]) return decals[kind];
+  const c = document.createElement('canvas');
+  c.width = 256; c.height = kind === 'warn' ? 48 : 160;
+  const g = c.getContext('2d');
+  const ink = 'rgba(190,196,204,0.92)';
+  if (kind === 'num') {
+    g.fillStyle = ink; g.font = 'bold 112px Arial, sans-serif'; g.textAlign = 'center';
+    g.fillText('01', 128, 108);
+    g.fillRect(36, 124, 184, 8);
+    g.beginPath(); g.moveTo(114, 138); g.lineTo(142, 138); g.lineTo(128, 156); g.fill();
+  } else if (kind === 'mark') {
+    g.strokeStyle = ink; g.lineWidth = 7;
+    for (const [x, y, dx, dy] of [[36, 22, 1, 1], [220, 22, -1, 1], [36, 118, 1, -1], [220, 118, -1, -1]]) {
+      g.beginPath(); g.moveTo(x + dx * 34, y); g.lineTo(x, y); g.lineTo(x, y + dy * 34); g.stroke();
+    }
+    g.beginPath(); g.moveTo(128, 46); g.lineTo(160, 70); g.lineTo(128, 94); g.lineTo(96, 70); g.closePath(); g.stroke();
+    g.beginPath(); g.arc(128, 70, 8, 0, Math.PI * 2); g.fillStyle = ink; g.fill();
+    g.font = 'bold 22px Arial, sans-serif'; g.textAlign = 'center'; g.fillText('HC-01  CORE UNIT', 128, 150);
+  } else {
+    g.fillStyle = 'rgba(20,20,22,0.9)'; g.fillRect(0, 0, 256, 48);
+    g.fillStyle = 'rgba(220,170,40,0.95)';
+    for (let x = -48; x < 300; x += 32) { g.beginPath(); g.moveTo(x, 48); g.lineTo(x + 16, 48); g.lineTo(x + 40, 0); g.lineTo(x + 24, 0); g.fill(); }
+  }
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 4;
+  return (decals[kind] = new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4 }));
 }
 const glows = new Map();
 export function glow(color, opacity = 1) {
   const k = color + ':' + opacity;
-  if (!glows.has(k)) glows.set(k, new THREE.MeshBasicMaterial({ color, transparent: opacity < 1, opacity, blending: opacity < 1 ? THREE.AdditiveBlending : THREE.NormalBlending, depthWrite: opacity >= 1 }));
+  if (!glows.has(k)) {
+    const gm = new THREE.MeshBasicMaterial({ color, transparent: opacity < 1, opacity, blending: opacity < 1 ? THREE.AdditiveBlending : THREE.NormalBlending, depthWrite: opacity >= 1 });
+    gm.color.multiplyScalar(3); // HDR bright: blooms; ordinary lit armor does not
+    glows.set(k, gm);
+  }
   return glows.get(k);
 }
 
@@ -49,6 +85,18 @@ function group(parent, x = 0, y = 0, z = 0) {
 const cyl = (r1, r2, h, s = 6) => new THREE.CylinderGeometry(r1, r2, h, s);
 const box = (w, h, d) => new THREE.BoxGeometry(w, h, d);
 const PI2 = Math.PI / 2;
+function decal(parent, kind, w, h, x, y, z, ry = 0) { return add(parent, new THREE.PlaneGeometry(w, h), decalMat(kind), x, y, z, 0, ry, 0); }
+
+// Articulated hand: wrist ring, palm, four fingers and a thumb
+function buildHand(parent, y, k, s, C) {
+  const h = group(parent, 0, y, 0);
+  h.scale.setScalar(k);
+  add(h, cyl(0.34, 0.34, 0.22, 8), C.P, 0, 0.45, 0);
+  add(h, taperBox(0.75, 0.6, 0.85, { bx: 0.9 }), C.J, 0, 0.05, 0);
+  for (let i = 0; i < 4; i++) add(h, box(0.15, 0.52, 0.18), C.F, -0.27 + i * 0.18, -0.4, 0.2, 0.35);
+  add(h, box(0.17, 0.44, 0.2), C.F, -s * 0.42, -0.1, 0.28, 0.3, 0, s * 0.5);
+  return h;
+}
 
 // Handheld gun, laid out along -Y (the forearm axis) so it points forward when the elbow is raised.
 function weaponMesh(type, C) {
@@ -115,33 +163,40 @@ function buildArm(torso, s, o, C, b) {
   const ul = long ? 3.6 : 2.8, hand = long ? 3.9 : gaunt ? 3.4 : 3.0, gw = gaunt ? 1.55 : 1;
   const sh = group(torso, o.x, o.y, o.z);
   sh.scale.setScalar(o.scale);
+  add(sh, new THREE.SphereGeometry(0.62, 8, 6), C.F, 0, 0, 0);
   if (o.big) {
-    add(sh, taperBox(2.2 * b, 2.5 * b, 2.9 * b, { tx: 1.08, tz: 1.05, bx: 0.78, bz: 0.85 }), C.M, s * 0.5, 0.4, 0, 0, 0, s * 0.12);
-    add(sh, box(2.35 * b, 0.32, 3.0 * b), C.D, s * 0.5, -0.9, 0, 0, 0, s * 0.12);
-    add(sh, taperBox(0.5, 1.0, 2.0, { tz: 0.6 }), C.Fr, s * 1.55 * b, 0.6, 0, 0, 0, s * 0.12);
+    // Boxy shoulder pod with layered armor
+    add(sh, taperBox(2.2 * b, 2.2 * b, 2.6 * b, { tx: 0.9, tz: 0.92, bx: 0.95 }), C.M, s * 0.6, 0.35, 0);
+    add(sh, taperBox(2.0 * b, 0.4, 2.4 * b, { tx: 0.8, tz: 0.85 }), C.D, s * 0.6, 1.62 * b, 0);
+    add(sh, box(1.7 * b, 1.45 * b, 0.14), C.D, s * 0.6, 0.3, 1.33 * b);
+    add(sh, box(1.9 * b, 0.3, 2.65 * b), C.J, s * 0.6, -0.82 * b, 0);
+    add(sh, taperBox(0.4, 1.6 * b, 2.0 * b, { tz: 0.7 }), C.Fr, s * 1.75 * b, 0.35, 0);
   } else {
-    add(sh, cyl(0.7, 0.7, 1.2, 6), C.J, 0, 0, 0, 0, 0, PI2);
-    add(sh, taperBox(1.4, 1.4, 1.8, { bx: 0.7 }), C.M, s * 0.3, 0.3, 0, 0, 0, s * 0.15);
+    add(sh, taperBox(1.3, 1.2, 1.6, { bx: 0.7 }), C.M, s * 0.35, 0.3, 0, 0, 0, s * 0.15);
   }
-  add(sh, box(0.85, ul - 0.6, 0.85), C.Fr, s * 0.3, -ul / 2 - 0.2, 0);
+  // Upper arm: inner frame, half armor shell, hydraulic piston
+  add(sh, cyl(0.3, 0.3, ul - 0.4, 8), C.F, s * 0.3, -ul / 2, 0);
+  add(sh, taperBox(0.95, ul * 0.62, 1.0, { bx: 0.85 }), C.M, s * 0.42, -ul * 0.45, 0.05);
+  add(sh, cyl(0.08, 0.08, ul * 0.7, 5), C.P, s * 0.3, -ul * 0.5, -0.45);
   const elbow = group(sh, s * 0.3, -ul, 0);
-  add(elbow, cyl(0.45 * gw, 0.45 * gw, 1.0), C.J, 0, 0, 0, 0, 0, PI2);
-  add(elbow, taperBox(1.3 * b * gw, hand - 0.4, 1.45 * b * gw, { tx: gaunt ? 0.75 : 0.85, tz: 0.85, bx: gaunt ? 1.15 : 1, bz: gaunt ? 1.1 : 1 }), C.M, 0, -(hand - 0.4) / 2 - 0.1, 0);
-  add(elbow, box(0.3, hand - 1, 1.25 * b * gw), C.D, s * 0.72 * b * gw, -hand / 2 + 0.2, 0);
-  if (gaunt) for (const k of [-1, 0, 1]) add(elbow, taperBox(0.3, 0.6, 0.35, { tx: 0.3, tz: 0.3 }), C.Fr, k * 0.6, -hand + 0.9, 1.25);
-  let blade = null;
+  add(elbow, cyl(0.5 * gw, 0.5 * gw, 0.9, 10), C.F, 0, 0, 0, 0, 0, PI2);
+  add(elbow, taperBox(0.95 * gw, 0.9, 0.8, { tz: 0.5 }), C.D, 0, 0.2, -0.55 * gw);
+  // Forearm armor widens toward the wrist
+  add(elbow, taperBox(1.2 * b * gw, hand - 0.5, 1.35 * b * gw, { tx: gaunt ? 0.7 : 0.8, tz: 0.8, bx: gaunt ? 1.15 : 1.05, bz: 1.05 }), C.M, 0, -(hand - 0.5) / 2 - 0.15, 0.05);
+  add(elbow, taperBox(0.3, hand - 1.1, 1.1 * b * gw, {}), C.D, s * 0.68 * b * gw, -hand / 2 + 0.2, 0);
+  add(elbow, cyl(0.07, 0.07, hand - 1.2, 5), C.P, -s * 0.35 * gw, -hand / 2 + 0.1, -0.6 * gw);
+  if (gaunt) for (const k of [-1, 0, 1]) add(elbow, taperBox(0.3, 0.6, 0.35, { tx: 0.3, tz: 0.3 }), C.Fr, k * 0.6, -hand + 0.95, 1.25);
   if (o.blade) {
-    // Blade hand: long angled blade instead of a fist
-    blade = group(elbow, 0, -hand, 0);
+    const blade = group(elbow, 0, -hand, 0);
     add(blade, box(0.7, 0.7, 0.8), C.J, 0, 0, 0);
     add(blade, taperBox(0.28, 4.6, 1.1, { tz: 0.15, tx: 0.5 }), C.Fr, 0, -2.6, 0.15);
     add(blade, box(0.07, 4.2, 0.09), glow(MELEE.blades.color), 0, -2.5, 0.68);
-  } else add(elbow, gaunt ? box(1.7, 1.5, 1.7) : box(0.8, 0.8, 0.9), gaunt ? C.D : C.J, 0, -hand, 0);
+  } else buildHand(elbow, -hand, gaunt ? 1.7 : 1, s, C);
 
   let muzzle = null;
   if (o.weapon) {
     const w = weaponMesh(o.weapon, C);
-    if (o.blade) { w.g.position.set(s * 0.95, -1.0, 0.3); w.g.scale.setScalar(0.8); } // forearm-mounted
+    if (o.blade) { w.g.position.set(s * 0.95, -1.0, 0.3); w.g.scale.setScalar(0.8); }
     else w.g.position.set(0, -hand, gaunt ? 1.3 : 0.75);
     elbow.add(w.g);
     muzzle = w.muzzle;
@@ -149,12 +204,12 @@ function buildArm(torso, s, o, C, b) {
   if (o.melee === 'pile') {
     const p = group(elbow, s * 0.95, -1.4, 0);
     add(p, box(0.9, 2.6, 1.1), C.D, 0, 0, 0);
-    add(p, cyl(0.22, 0.06, 3.4), mat(0xc8d4dc), 0, -2.6, 0);
+    add(p, cyl(0.22, 0.06, 3.4), C.P, 0, -2.6, 0);
     add(p, box(0.95, 0.3, 1.15), glow(MELEE.pile.color), 0, 0.9, 0);
   } else if (o.melee) {
-    const m = meleeMesh(o.melee, C);
-    m.position.set(0, -hand - 0.1, gaunt ? 0.6 : 0.2);
-    elbow.add(m);
+    const mm = meleeMesh(o.melee, C);
+    mm.position.set(0, -hand - 0.1, gaunt ? 0.6 : 0.2);
+    elbow.add(mm);
   }
   return { sh, elbow, side: s, muzzle, hand, big: o.big, gw, blade: !!o.blade };
 }
@@ -185,65 +240,82 @@ function sideWeapons(torso, type, b, C) {
 }
 
 function buildHead(torso, type, b, C) {
-  const head = group(torso, 0, 3.7, 0.75);
+  const head = group(torso, 0, 3.75, 0.8);
+  add(head, cyl(0.32, 0.4, 0.7, 8), C.F, 0, -0.35, -0.1);
   let eye;
-  if (type === 'visor') {
-    add(head, taperBox(1.9 * b, 1.3, 2.2 * b, { tx: 0.8, tz: 0.8 }), C.M, 0, 0.1, 0.3);
-    add(head, box(1.8, 0.5, 0.4), C.D, 0, 0.4, 1.45);
-    eye = add(head, box(1.5, 0.14, 0.1), C.E, 0, 0.05, 1.45);
-    add(head, box(0.6, 0.5, 1.6), C.D, 0, 0.9, 0.1);
-  } else if (type === 'crest') {
-    add(head, taperBox(1.5 * b, 1.4, 1.8 * b, { tx: 0.75, tz: 0.8 }), C.Fr, 0, 0.1, 0.4);
-    add(head, taperBox(1.2, 0.6, 0.6, { tx: 0.6 }), C.D, 0, -0.45, 1.25);
+  if (type === 'crest') {
+    // V-fin head with twin eyes and faceplate
+    add(head, taperBox(1.3 * b, 1.2, 1.5 * b, { tx: 0.75, tz: 0.8 }), C.Fr, 0, 0.15, 0.1);
+    add(head, taperBox(1.0, 0.55, 0.5, { tx: 0.55 }), C.D, 0, -0.35, 0.85);
     for (const s of [-1, 1]) {
-      add(head, box(0.32, 0.12, 0.1), C.E, s * 0.32, 0.15, 1.31);
-      add(head, taperBox(0.18, 1.9, 0.18, { tx: 0.3, tz: 0.3 }), mat(0xd8b23a), s * 0.55, 1.15, 1.1, 0, 0, -s * 0.85);
+      add(head, taperBox(0.4, 0.14, 0.1, { tx: 0.6 }), C.E, s * 0.27, 0.12, 0.88, 0, 0, s * 0.12);
+      add(head, taperBox(0.16, 1.9, 0.16, { tx: 0.25, tz: 0.25 }), mat(0xd8b23a), s * 0.5, 1.05, 0.75, 0, 0, -s * 0.85);
+      add(head, box(0.18, 0.7, 0.9), C.D, s * 0.68, 0.0, 0.1);
     }
-    add(head, box(0.3, 0.3, 0.2), C.E, 0, 0.75, 1.15);
-    eye = head.children[2];
+    eye = add(head, box(0.28, 0.28, 0.2), C.E, 0, 0.62, 0.8);
+  } else if (type === 'visor') {
+    // Wide armored head with a T-shaped visor
+    add(head, taperBox(1.8 * b, 0.75, 1.5 * b, { tx: 0.85, tz: 0.8, fx: 0.9 }), C.M, 0, 0.15, 0.1);
+    add(head, taperBox(1.9 * b, 0.25, 1.7 * b, { tx: 0.85 }), C.D, 0, 0.6, 0.1);
+    add(head, box(1.55, 0.3, 0.18), C.J, 0, 0.12, 0.82);
+    eye = add(head, box(1.4, 0.1, 0.06), C.E, 0, 0.12, 0.92);
+    add(head, box(0.1, 0.32, 0.06), C.E, 0, -0.05, 0.92);
+    for (const s of [-1, 1]) add(head, cyl(0.03, 0.05, 1.4, 4), C.Fr, s * 0.75, 0.9, -0.3, -0.35, 0, -s * 0.2);
   } else {
-    // mono / horned: low dome with a single eye
-    const dome = add(head, new THREE.SphereGeometry(1, 7, 4, 0, Math.PI * 2, 0, Math.PI / 2), C.M, 0, -0.15, 0);
-    dome.scale.set(1.0 * b, 0.9, 1.45 * b);
-    add(head, taperBox(1.5, 0.7, 1.1, { tx: 0.8, fx: 0.7 }), C.D, 0, -0.25, 0.95);
-    add(head, box(1.15, 0.22, 0.4), C.J, 0, 0.05, 1.42);
-    eye = add(head, new THREE.SphereGeometry(0.2, 6, 4), C.E, 0, 0.05, 1.6);
-    if (type === 'horned') {
-      for (const s of [-1, 1]) add(head, taperBox(0.2, 1.8, 0.32, { tx: 0.2, tz: 0.2 }), C.D, s * 0.6, 0.85, 0.5, -0.55, 0, s * 0.45);
-    } else add(head, taperBox(0.22, 0.45, 2.2, { tz: 0.6 }), C.M, 0, 0.8, 0.1);
+    // Sleek helmet with a wide glowing visor slit (mono) or swept horns (horned)
+    add(head, taperBox(1.25 * b, 0.95, 1.7 * b, { tx: 0.7, tz: 0.6, fx: 0.8 }), C.M, 0, 0.15, 0.15);
+    add(head, taperBox(1.45 * b, 0.3, 1.15, { tz: 0.45, tx: 0.85 }), C.D, 0, 0.6, 0.62, 0.22);
+    add(head, box(1.2, 0.36, 0.22), C.J, 0, 0.12, 0.95);
+    eye = add(head, box(1.08, 0.13, 0.08), C.E, 0, 0.13, 1.07);
+    add(head, taperBox(0.9, 0.35, 0.5, { tx: 0.6 }), C.D, 0, -0.25, 0.85);
+    for (const s of [-1, 1]) {
+      add(head, box(0.22, 0.7, 1.0), C.D, s * 0.66, 0.0, 0.3);
+      if (type === 'horned') add(head, taperBox(0.18, 2.0, 0.34, { tx: 0.15, tz: 0.2 }), C.Fr, s * 0.45, 1.1, 0.35, -0.75, 0, s * 0.35);
+      else add(head, taperBox(0.12, 1.05, 0.5, { tx: 0.3, tz: 0.3 }), C.D, s * 0.42, 0.95, -0.15, -0.45, 0, -s * 0.25);
+    }
   }
   return { head, eye };
 }
 
 function buildBody(torso, type, b, C) {
-  add(torso, box(1.6, 1.0, 1.3), C.J, 0, 0.2, 0);
+  // Segmented thin waist (inner frame) + abdominal plate
+  for (let i = 0; i < 3; i++) add(torso, cyl(0.62 - i * 0.04, 0.68 - i * 0.04, 0.32, 10), i % 2 ? C.F : C.J, 0, 0.05 + i * 0.36, 0);
+  add(torso, taperBox(1.1, 0.9, 0.35, { tx: 1.3 }), C.D, 0, 0.55, 0.62);
   if (type === 'sleek') {
-    add(torso, taperBox(2.6 * b, 2.5, 2.0 * b, { bx: 0.6, bz: 0.7, fx: 0.7 }), C.M, 0, 1.8, 0);
-    add(torso, taperBox(3.3 * b, 1.0, 2.2 * b, { tx: 0.7, tz: 0.6 }), C.M, 0, 3.35, 0);
-    add(torso, taperBox(0.9, 2.4, 1.0, { tx: 0.3, bx: 0.5, tz: 0.4 }), C.D, 0, 2.0, 1.05 * b);
-    for (const s of [-1, 1]) add(torso, taperBox(0.18, 3.0, 1.8, { tx: 0.2, tz: 0.3 }), C.D, s * 1.05, 4.2, -1.4, -0.5, 0, s * 0.45);
-    add(torso, box(0.4, 0.1, 0.05), C.E, 0, 2.9, 1.6 * b);
-  } else if (type === 'heavy') {
-    add(torso, taperBox(4.2 * b, 2.8, 2.8 * b, { bx: 0.7, bz: 0.8 }), C.M, 0, 1.9, 0);
-    add(torso, taperBox(4.6 * b, 1.2, 3.0 * b, { tx: 0.8, tz: 0.7 }), C.M, 0, 3.6, 0);
+    add(torso, taperBox(2.4 * b, 1.3, 1.7 * b, { bx: 0.55, bz: 0.8 }), C.F, 0, 1.6, 0);
     for (const s of [-1, 1]) {
-      add(torso, taperBox(1.7, 2.1, 0.5, { bx: 0.8 }), C.D, s * 0.9, 2.0, 1.5 * b, -0.1);
-      add(torso, taperBox(0.6, 2.4, 2.4, { bz: 0.7 }), C.D, s * 2.2 * b, 1.7, 0, 0, 0, s * 0.12);
-      for (let i = 0; i < 3; i++) add(torso, box(0.9, 0.12, 0.1), C.J, s * 0.9, 1.4 + i * 0.35, 1.78 * b);
+      add(torso, taperBox(1.5 * b, 2.0, 0.5, { tx: 0.7, bx: 0.5 }), C.M, s * 0.62 * b, 2.55, 0.95 * b, 0.12, s * 0.35, s * 0.18);
+      add(torso, taperBox(1.1 * b, 1.4, 0.4, { tx: 0.6, bx: 0.6 }), C.D, s * 0.95 * b, 2.2, 0.8 * b, 0.05, s * 0.5, s * 0.3);
+      add(torso, taperBox(0.16, 3.0, 1.6, { tx: 0.2, tz: 0.3 }), C.D, s * 1.05, 4.2, -1.4, -0.5, 0, s * 0.45);
     }
-    add(torso, box(0.7, 0.14, 0.05), C.E, 0, 3.0, 1.65 * b);
+    add(torso, taperBox(3.0 * b, 1.2, 2.0 * b, { tx: 0.75, tz: 0.65, bx: 0.9 }), C.M, 0, 3.3, -0.1);
+    add(torso, taperBox(0.7, 1.6, 0.9, { tx: 0.3, tz: 0.4 }), C.D, 0, 2.4, 1.25 * b, 0.2);
+  } else if (type === 'heavy') {
+    add(torso, taperBox(3.0 * b, 1.4, 2.2 * b, { bx: 0.6 }), C.F, 0, 1.55, 0);
+    add(torso, taperBox(4.3 * b, 2.4, 2.9 * b, { bx: 0.72, bz: 0.8, tx: 0.95 }), C.M, 0, 2.7, 0);
+    add(torso, taperBox(4.7 * b, 0.9, 3.1 * b, { tx: 0.8, tz: 0.7 }), C.D, 0, 4.1, 0);
+    for (const s of [-1, 1]) {
+      add(torso, taperBox(1.9, 2.0, 0.55, { bx: 0.8, tx: 1.05 }), C.M, s * 0.95, 2.6, 1.55 * b, -0.12, s * 0.08, 0);
+      add(torso, taperBox(1.6, 1.2, 0.4, { bx: 0.8 }), C.D, s * 0.9, 1.6, 1.25 * b, -0.35);
+      add(torso, taperBox(0.6, 2.4, 2.6, { bz: 0.7 }), C.D, s * 2.25 * b, 2.4, 0, 0, 0, s * 0.12);
+    }
   } else if (type === 'core') {
-    add(torso, taperBox(3.2 * b, 2.4, 2.0 * b, { bx: 0.68, bz: 0.8 }), C.M, 0, 1.8, -0.15);
-    add(torso, taperBox(3.8 * b, 1.1, 2.5 * b, { tx: 0.78, tz: 0.68 }), C.M, 0, 3.4, 0);
-    add(torso, new THREE.IcosahedronGeometry(0.85, 0), C.E, 0, 2.0, 0.95 * b);
-    add(torso, new THREE.TorusGeometry(1.1, 0.18, 4, 8), C.Fr, 0, 2.0, 1.0 * b);
-    for (const s of [-1, 1]) for (let i = 0; i < 3; i++) add(torso, box(0.9, 0.18, 0.4), C.D, s * 1.05, 1.2 + i * 0.6, 1.0 * b, 0, 0, s * (0.3 - i * 0.2));
+    add(torso, taperBox(2.6 * b, 1.4, 1.9 * b, { bx: 0.6 }), C.F, 0, 1.6, 0);
+    add(torso, taperBox(3.8 * b, 1.3, 2.5 * b, { tx: 0.78, tz: 0.68 }), C.M, 0, 3.55, 0);
+    for (const s of [-1, 1]) {
+      add(torso, taperBox(1.3 * b, 2.2, 1.9 * b, { bx: 0.7 }), C.M, s * 1.25 * b, 2.5, -0.15, 0, 0, s * 0.06);
+      for (let i = 0; i < 3; i++) add(torso, box(0.9, 0.16, 0.35), C.D, s * 0.75, 1.9 + i * 0.5, 0.95 * b, 0, 0, s * (0.35 - i * 0.2));
+    }
+    add(torso, new THREE.IcosahedronGeometry(0.75, 1), C.E, 0, 2.45, 0.7 * b);
+    add(torso, new THREE.TorusGeometry(0.95, 0.14, 6, 12), C.P, 0, 2.45, 0.8 * b);
   } else {
-    add(torso, taperBox(3.2 * b, 2.4, 2.2 * b, { bx: 0.68, bz: 0.8 }), C.M, 0, 1.8, 0);
-    add(torso, taperBox(3.8 * b, 1.1, 2.5 * b, { tx: 0.78, tz: 0.68 }), C.M, 0, 3.4, 0);
-    add(torso, taperBox(1.6, 1.6, 0.5, { tx: 0.7, bx: 0.85 }), C.D, 0, 2.0, 1.15 * b);
-    for (const s of [-1, 1]) add(torso, box(0.5, 0.9, 0.2), C.Fr, s * 1.0, 1.5, 1.15 * b);
-    add(torso, box(0.55, 0.12, 0.05), C.E, 0, 2.55, 1.42 * b);
+    // Broad armored chest tapering to the thin waist, with a forward prow
+    add(torso, taperBox(2.2 * b, 1.3, 1.7 * b, { bx: 0.55, bz: 0.75 }), C.F, 0, 1.55, 0);
+    add(torso, taperBox(3.6 * b, 2.1, 2.5 * b, { bx: 0.62, bz: 0.8, tz: 0.88 }), C.M, 0, 2.75, 0);
+    add(torso, taperBox(2.3 * b, 1.5, 0.9, { tx: 0.55, bx: 0.8 }), C.M, 0, 2.55, 1.35 * b, 0.18);
+    add(torso, taperBox(2.9 * b, 0.6, 2.3 * b, { tx: 0.8, tz: 0.75 }), C.D, 0, 3.95, 0);
+    add(torso, taperBox(2.8, 1.7, 1.2, { tz: 0.7 }), C.D, 0, 2.9, -1.3 * b);
+    for (const s of [-1, 1]) add(torso, taperBox(0.35, 1.7, 1.9, { bz: 0.7 }), C.D, s * 1.85 * b, 2.5, 0, 0, 0, s * 0.18);
   }
 }
 
@@ -387,7 +459,23 @@ function buildPack(torso, type, b, C, T) {
   const thrusters = [];
   const flame = (parent, r, len, x, y, z, rx) => { const f = add(parent, new THREE.ConeGeometry(r, len, 6, 1, true), T, x, y, z, rx + Math.PI); thrusters.push(f); return f; };
   const trim = mat(0xe0b030);
-  if (type === 'boosters') {
+  if (type === 'binders') {
+    // Two long shield binders on articulated arms rising from the back
+    add(torso, taperBox(2.4 * b, 2.4, 1.3, { tz: 0.8 }), C.D, 0, 2.4, -1.5 * b);
+    for (const s of [-1, 1]) {
+      const arm = group(torso, s * 1.4 * b, 3.6, -1.8 * b);
+      add(arm, cyl(0.3, 0.3, 0.6, 8), C.F, 0, 0, 0, 0, 0, PI2);
+      add(arm, box(0.35, 0.35, 1.6), C.F, s * 0.6, 0.4, -0.5, 0.4, 0, 0);
+      const bind = group(arm, s * 1.3, 1.0, -1.0);
+      bind.rotation.set(-0.15, 0, -s * 0.42);
+      add(bind, taperBox(1.2, 7.6, 0.55, { tx: 0.85, bx: 0.9 }), C.D, 0, 1.6, 0);
+      add(bind, box(0.75, 5.2, 0.1), mat(0x6f8fa8, 0.12, 0.9), 0, 1.9, 0.29);
+      for (let i = 0; i < 6; i++) add(bind, box(0.95, 0.08, 0.12), C.J, 0, -1.4 + i * 0.9, 0.3);
+      add(bind, box(0.5, 0.25, 0.6), C.Tr, 0, 5.3, 0.1);
+      add(bind, cyl(0.3, 0.42, 0.5, 8), C.J, 0, -2.35, 0);
+      flame(bind, 0.4, 2.2, 0, -3.6, 0, 0);
+    }
+  } else if (type === 'boosters') {
     // Tall twin booster pods rising behind the shoulders
     add(torso, taperBox(2.4 * b, 2.4, 1.2, { tz: 0.8 }), C.D, 0, 2.2, -1.5 * b);
     for (const s of [-1, 1]) {
@@ -496,79 +584,47 @@ function bolt(parent, x, y, z, r, C, axis = 'z') {
 const FRONT = { standard: 1.12, heavy: 1.42, sleek: 0.98, core: 0.9 };
 const HALF = { standard: 1.45, heavy: 2.0, sleek: 1.2, core: 1.45 };
 function addDetails(rig, lo, C, b) {
-  const t = rig.torso, fz = FRONT[lo.body] * b, hw = HALF[lo.body] * b;
-  // Chest: twin intake vents, seams, collar bolts, neck, side sensors
-  if (lo.body !== 'core') for (const s of [-1, 1]) vents(t, s * hw * 0.55, 1.45, fz + 0.03, 0.75, 0.62, 4, C, -0.1);
+  const t = rig.torso;
+  const fz = ({ standard: 1.3, heavy: 1.55, sleek: 1.05, core: 1.0 })[lo.body] * b;
   for (const s of [-1, 1]) {
-    add(t, box(0.05, 1.7, 1.4 * b), C.J, s * hw * 0.98, 1.9, 0);
-    bolt(t, s * hw * 0.75, 3.35, fz * 0.75, 0.11, C);
-    bolt(t, s * hw * 0.45, 3.35, fz * 0.75, 0.11, C);
-    add(t, box(0.12, 0.12, 0.06), glow(0x6bff8a), s * hw * 0.9, 2.75, fz * 0.72);
-    add(t, box(0.5, 0.14, 0.4), C.Tr, s * 0.55, 0.7, 0.62, 0, 0, s * 0.35); // waist V-trim
-  }
-  add(t, cyl(0.45, 0.55, 0.6, 8), C.J, 0, 3.75, 0.35);
-  add(t, box(0.9, 0.5, 0.25), C.D, 0, 0.2, 0.75);
-  // Backpack hoses
-  for (const s of [-1, 1]) {
-    const hose = add(t, new THREE.TorusGeometry(0.45, 0.1, 4, 8, Math.PI), C.J, s * 1.0 * b, 2.9, -1.05 * b);
+    // Chest intakes with slats, glowing seam, bolts, side seam
+    const v = group(t, s * 0.85 * b, 2.3, fz);
+    v.rotation.set(0.15, s * 0.25, 0);
+    add(v, box(0.75, 0.42, 0.08), C.J, 0, 0, 0);
+    for (let i = 0; i < 3; i++) add(v, box(0.62, 0.05, 0.1), C.Tr, 0, -0.13 + i * 0.13, 0.02);
+    add(t, box(0.05, 0.9, 0.05), C.E, s * 1.15 * b, 2.95, fz * 0.78);
+    bolt(t, s * 1.3 * b, 3.6, fz * 0.6, 0.1, C);
+    add(t, box(0.07, 1.6, 1.3 * b), C.J, s * 1.6 * b, 2.6, 0);
+    const hose = add(t, new THREE.TorusGeometry(0.42, 0.09, 5, 10, Math.PI), C.F, s * 0.95 * b, 3.0, -1.05 * b);
     hose.rotation.set(0, PI2, 0);
+    add(rig.hips, box(0.12, 1.1, 0.08), C.Tr, s * 0.3, -0.4, 1.2, -0.2);
   }
-  // Head: antenna + cheek vents + chin
-  const h = rig.head;
-  if (lo.head !== 'crest') {
-    add(h, cyl(0.04, 0.05, 1.8), C.Fr, 0.55, 1.0, -0.3, -0.3, 0, -0.25);
-    add(h, cyl(0.03, 0.04, 1.1), C.Fr, -0.5, 0.8, -0.4, -0.4, 0, 0.2);
-  }
-  for (const s of [-1, 1]) for (let i = 0; i < 3; i++) add(h, box(0.06, 0.32, 0.25), C.J, s * (0.62 + i * 0.1), -0.3, 0.95 - i * 0.12);
-  add(h, box(0.4, 0.18, 0.2), C.Tr, 0, -0.62, 1.2);
-  // Arms
-  for (const A of [...rig.arms, ...rig.lowerArms]) {
-    const s = A.side, sh = A.sh, el = A.elbow;
-    if (A.big) {
-      add(sh, box(1.9 * b, 0.14, 0.16), C.Tr, s * 0.5, 1.45, 1.38 * b, 0, 0, s * 0.12);
-      for (let i = 0; i < 3; i++) bolt(sh, s * 1.72 * b, 0.9 - i * 0.55, 0.9, 0.12, C, 'x');
-      add(sh, cyl(0.22, 0.32, 0.5), C.J, s * 0.5, 0.3, -1.55 * b, PI2);
-      add(sh, new THREE.CircleGeometry(0.2, 6), glow(0x7fd8ff, 0.85), s * 0.5, 0.3, -1.81 * b, 0, Math.PI);
-      add(sh, box(0.06, 1.8, 2.4 * b), C.J, s * 1.0 * b, 0.4, 0, 0, 0, s * 0.12);
-    }
-    add(el, taperBox(0.95 * A.gw, 0.9, 0.75, { tz: 0.5 }), C.M, 0, 0.25, -0.62 * A.gw);
-    if (!A.blade) add(el, cyl(0.58 * A.gw, 0.58 * A.gw, 0.24, 8), C.Fr, 0, -(A.hand - 0.5), 0);
-    add(el, box(0.8 * A.gw, 1.1, 0.06), C.J, 0, -1.4, 0.74 * b * A.gw);
-    add(el, box(0.5 * A.gw, 0.12, 0.08), C.Tr, 0, -0.75, 0.76 * b * A.gw);
-  }
-  // Hips: side hardpoints + skirt trim
-  for (const s of [-1, 1]) {
-    add(rig.hips, cyl(0.32, 0.32, 0.3, 8), C.Fr, s * 1.9, -0.5, 0, 0, 0, PI2);
-    add(rig.hips, box(0.12, 1.2, 0.1), C.Tr, s * 0.3, -0.4, 1.27, -0.15);
-  }
-  // Legs
-  for (const Lg of rig.legs) {
-    const s = Lg.side;
+  // Shoulder pods: unit number / emblem decals, caution stripe, missile-cell grill
+  rig.arms.forEach((A, i) => {
+    if (!A.big) return;
+    const s = A.side;
+    decal(A.sh, i ? 'num' : 'mark', 1.35 * b, 0.85 * b, s * 0.6, 0.38, 1.42 * b);
+    decal(A.sh, 'warn', 1.2 * b, 0.2, s * 0.6, -0.5, 1.42 * b);
+    for (let k = 0; k < 6; k++) add(A.sh, box(0.3, 0.26, 0.08), C.J, s * 1.97 * b, 0.95 - Math.floor(k / 2) * 0.42, -0.4 + (k % 2) * 0.55, 0, PI2, 0);
+  });
+  for (const L of rig.legs) {
     if (lo.legs === 'standard') {
-      add(Lg.hip, box(0.06, 2.0, 1.1 * b), C.J, s * 0.66 * b, -1.4, 0);
-      vents(Lg.hip, 0, -1.5, 0.76 * b, 0.7, 0.7, 3, C);
-      for (const k of [-1, 1]) bolt(Lg.knee, k * 0.64 * b, 0, 0, 0.28, C, 'x');
-      add(Lg.knee, box(0.55, 0.12, 0.06), C.Tr, 0, 0.45, 1.18);
-      add(Lg.knee, box(0.55, 0.12, 0.06), C.Tr, 0, 0.25, 1.15);
-      vents(Lg.knee, 0, -0.9, 1.2 * b, 0.75, 0.6, 3, C, -0.07);
-      add(Lg.knee, taperBox(1.3 * b, 0.9, 0.5, { tx: 0.8 }), C.D, 0, -3.05, 0.95 * b, -0.35);
-      add(Lg.knee, box(0.06, 2.6, 1.4 * b), C.J, s * 0.72 * b, -1.8, 0);
-      add(Lg.foot, box(0.9 * b, 0.12, 0.08), C.Tr, 0, 0.12, 1.55 * b);
+      decal(L.hip, 'num', 0.85 * b, 0.55 * b, 0, -1.05, 0.3 + 0.56 * b);
+      add(L.knee, box(0.5, 0.1, 0.06), C.Tr, 0, 0.55, 1.0);
+      decal(L.knee, 'warn', 0.8 * b, 0.16, 0, -0.55, 0.82 * b + 0.15);
     } else if (lo.legs === 'hind') {
-      for (const k of [-1, 1]) bolt(Lg.knee, k * 0.62 * b, 0, 0, 0.25, C, 'x');
-      add(Lg.knee, box(0.5, 0.12, 0.06), C.Tr, 0, -0.6, -0.15, 0.55);
-      vents(Lg.hip, 0, -1.2, 1.25, 0.7, 0.6, 3, C, -0.45);
-      for (const k of [-1, 0, 1]) add(Lg.foot, box(0.2, 0.08, 0.3), C.Tr, k * 0.5, 0.15, 1.5, 0, k * 0.3, 0);
+      for (const k of [-1, 1]) bolt(L.knee, k * 0.62 * b, 0, 0, 0.25, C, 'x');
+      vents(L.hip, 0, -1.2, 1.25, 0.7, 0.6, 3, C, -0.45);
+      for (const k of [-1, 0, 1]) add(L.foot, box(0.2, 0.08, 0.3), C.Tr, k * 0.5, 0.15, 1.5, 0, k * 0.3, 0);
     } else if (lo.legs === 'quad') {
-      bolt(Lg.knee, 0, 0, 0.6, 0.26, C);
-      vents(Lg.knee, -s * 0.3, -2.0, 0.68 * b, 0.6, 0.9, 4, C);
-      add(Lg.knee, box(0.8, 0.14, 0.08), C.Tr, -s * 0.3, -1.0, 0.7 * b);
+      bolt(L.knee, 0, 0, 0.6, 0.26, C);
+      vents(L.knee, -L.side * 0.3, -2.0, 0.68 * b, 0.6, 0.9, 4, C);
     }
   }
   if (rig.skirt) {
     for (let i = 0; i < 8; i++) {
       const a = i / 8 * Math.PI * 2;
-      add(rig.skirt, box(0.12, 2.2, 0.08), i % 2 ? C.J : C.Tr, Math.sin(a) * 2.75 * b, -1.6, Math.cos(a) * 2.75 * b, 0, a, 0).rotation.order = 'YXZ';
+      add(rig.skirt, box(0.12, 2.2, 0.08), i % 2 ? C.J : C.Tr, Math.sin(a) * 2.75 * b, -1.6, Math.cos(a) * 2.75 * b, 0, a, 0);
     }
     for (const s of [-1, 1]) vents(rig.skirt, s * 0.9, -1.4, 2.95 * b, 0.6, 0.8, 4, C, -0.35);
   }
@@ -582,6 +638,7 @@ export function buildMech(spec = 'strider') {
   const C = {
     M: mat(lo.color ?? F.main), D: mat(lo.accent ?? F.dark), Fr: mat(F.frame), J: mat(F.joint),
     E: glow(lo.eye ?? F.eye), Tr: mat(F.trim ?? 0xe0b030),
+    F: mat(0x2b2f35, 0.55, 0.7), P: mat(0xc9d0d8, 0.22, 0.92),
   };
   const T = glow(0x7fd8ff, 0.85);
   if (lo.size === 'giant') return buildGiant(lo, F, C, T);
@@ -591,26 +648,37 @@ export function buildMech(spec = 'strider') {
   body.scale.set(F.prop[0], F.prop[1], F.prop[0]);
   const hips = group(body, 0, 7.0, 0);
 
-  add(hips, taperBox(2.6 * b, 1.3, 1.8, { tx: 1.1, bx: 0.7 }), C.D);
-  add(hips, taperBox(1.1, 1.7, 0.5, { bx: 0.55 }), C.M, 0, -0.35, 1.0, -0.15);
-  add(hips, taperBox(1.6, 1.4, 0.5, { bx: 0.7 }), C.M, 0, -0.3, -1.0, 0.15);
-  for (const s of [-1, 1]) add(hips, taperBox(0.45, 2.1, 1.9, { bz: 0.75 }), C.M, s * 1.6, -0.6, 0, 0, 0, s * 0.22);
+  // Pelvis: inner frame block, skirt armor and hip ball joints
+  add(hips, taperBox(2.2 * b, 1.2, 1.6, { tx: 1.1, bx: 0.75 }), C.F);
+  add(hips, taperBox(1.2, 1.5, 0.45, { bx: 0.5 }), C.M, 0, -0.3, 0.95, -0.2);
+  add(hips, taperBox(1.8, 1.2, 0.45, { bx: 0.7 }), C.D, 0, -0.2, -0.95, 0.2);
+  for (const s of [-1, 1]) {
+    add(hips, taperBox(0.4, 2.0, 1.9, { bz: 0.7 }), C.M, s * 1.6, -0.55, 0, 0, 0, s * 0.25);
+    add(hips, new THREE.SphereGeometry(0.5, 8, 6), C.F, s * 1.15, -0.3, 0);
+  }
 
   const { legs, skirt, glows } = buildLegs(hips, lo.legs, b, C, T);
   if (lo.legs === 'standard') for (const s of [-1, 1]) {
     const hip = group(hips, s * 1.15, -0.3, 0);
-    add(hip, taperBox(1.3 * b, 2.9, 1.5 * b, { bx: 0.82, bz: 0.82 }), C.M, 0, -1.4, 0);
-    add(hip, box(0.7, 2.6, 0.7), C.Fr, 0, -1.6, -0.6);
+    add(hip, cyl(0.42, 0.36, 2.7, 8), C.F, 0, -1.45, 0);
+    add(hip, taperBox(1.3 * b, 2.4, 1.05 * b, { bx: 0.85, tz: 0.9 }), C.M, 0, -1.25, 0.3);
+    add(hip, taperBox(0.32, 2.2, 1.35, { bz: 0.8 }), C.D, s * 0.62 * b, -1.3, 0);
+    add(hip, cyl(0.1, 0.1, 2.2, 5), C.P, -s * 0.2, -1.5, -0.5);
     const knee = group(hip, 0, -2.9, 0);
-    add(knee, cyl(0.55, 0.55, 1.2 * b), C.J, 0, 0, 0, 0, 0, PI2);
-    add(knee, taperBox(1.2 * b, 1.5, 0.9, { tz: 0.4, sz: 0.25, tx: 0.7 }), C.M, 0, 0.1, 0.75);
-    add(knee, taperBox(1.55 * b, 3.4, 2.0 * b, { tx: 0.72, tz: 0.68 }), C.M, 0, -1.7, -0.05);
-    add(knee, taperBox(1.1 * b, 2.6, 0.35, { tx: 0.8 }), C.D, 0, -1.8, 1.0 * b, -0.07);
-    add(knee, box(0.9, 1.6, 0.4), C.Fr, 0, -1.4, -1.05 * b);
+    add(knee, cyl(0.6, 0.6, 1.15 * b, 12), C.F, 0, 0, 0, 0, 0, PI2);
+    for (const k of [-1, 1]) add(knee, cyl(0.46, 0.46, 0.14, 12), C.D, k * 0.62 * b, 0, 0, 0, 0, PI2);
+    add(knee, taperBox(1.15 * b, 1.5, 0.8, { tz: 0.4, sz: 0.3, tx: 0.75 }), C.M, 0, 0.15, 0.62);
+    add(knee, cyl(0.38, 0.32, 3.0, 8), C.F, 0, -1.6, 0);
+    add(knee, taperBox(1.5 * b, 2.5, 1.85 * b, { tx: 0.82, tz: 0.78 }), C.M, 0, -1.55, -0.2);
+    add(knee, taperBox(1.0 * b, 2.8, 0.4, { tx: 0.8 }), C.D, 0, -1.65, 0.78 * b, -0.06);
+    add(knee, cyl(0.28, 0.4, 0.5, 8), C.J, 0, -2.0, -1.15 * b, PI2);
+    glows.push(add(knee, new THREE.CircleGeometry(0.26, 8), T, 0, -2.0, -1.41 * b, 0, Math.PI));
+    for (let i = 0; i < 3; i++) add(knee, new THREE.TorusGeometry(0.3, 0.06, 4, 10), C.P, 0, -2.72 - i * 0.14, 0, PI2);
     const foot = group(knee, 0, -3.2, 0);
-    add(foot, taperBox(1.5 * b, 0.8, 3.0 * b, { tx: 0.7, tz: 0.8 }), C.D, 0, -0.2, 0.45);
-    add(foot, taperBox(1.3 * b, 0.6, 1.3, { tx: 0.45, tz: 0.3, sz: -0.2 }), C.M, 0, -0.3, 2.3 * b);
-    add(foot, taperBox(0.5, 0.55, 1.5, { tx: 0.4, tz: 0.3 }), C.M, 0, -0.25, -1.4 * b, 0.25);
+    add(foot, taperBox(1.3 * b, 0.7, 2.8 * b, { tx: 0.65, tz: 0.72 }), C.D, 0, -0.22, 0.45);
+    add(foot, taperBox(1.0 * b, 0.5, 1.5, { tx: 0.4, tz: 0.2, sz: 0.15 }), C.M, 0, -0.3, 2.2 * b);
+    add(foot, taperBox(0.75, 0.65, 1.2, { tx: 0.5, tz: 0.5 }), C.M, 0, -0.2, -1.15 * b, 0.2);
+    add(foot, taperBox(1.1 * b, 0.45, 1.3, { tx: 0.8 }), C.M, 0, 0.25, 0.1);
     const fg = add(foot, new THREE.CircleGeometry(0.55, 8), T, 0, -0.62, 0.4, PI2);
     legs.push({ hip, knee, foot, glow: fg, side: s });
     glows.push(fg);
